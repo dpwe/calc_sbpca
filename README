@@ -1,0 +1,5 @@
+calc_sbpca
+
+Simplified, refactored version of subband PCA calculation in Matlab.
+
+2013-08-07 Dan Ellis dpwe@ee.columbia.edu

@@ -1,0 +1,40 @@
+function Y = calc_sbpca(d,sr)
+% Y = calc_sbpca(d,sr)
+%   Rebuild of SBPCA calculation
+% 2013-05-27 Dan Ellis dpwe@ee.columbia.edu
+
+% parameters
+params.wintime = 0.025
+params.hoptime = 0.010;
+params.sr = sr;
+
+% load the data files
+% PCA basis functions
+mapfile = 'pca_sr8k_bpo6_sb24_k10.mat';
+M = load(mapfile);
+params.mapping = M.mapping;
+% VQ codewords
+vqfile = 'CB-sbpca-4x60x1000.mat';
+C = load(vqfile);
+params.vqcodebook = C.codebook;
+params.vqmeans = C.recMean;
+params.vqstds = C.recStd;
+
+%%%%%%%%%%% Calculation %%%%%%%%%%%%
+
+% subbands
+subbands = sbpca_subbands(d, sr, params);
+
+% autocorrelate
+autocos = sbpca_autoco(subbands, params);
+
+% principal components
+pcas = sbpca_pca(autocos, params);
+
+% 2013-08-07 Up to here now verified as identical to calcSBPCA
+
+% vector quantize
+VQs = sbpca_vqs(pcas, params);
+
+% histogram
+hists = sbpca_hist(VQs, params);
