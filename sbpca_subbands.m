@@ -29,8 +29,6 @@ subbands = filterbank(fbank.b, fbank.a, ...
                       N, SQ, fbank.t);
 freqs = fbank.cf;
 
-fbank.b(10,:)
-
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 function [xo] = dithering(x)

@@ -4,15 +4,19 @@ function Y = calc_sbpca(d,sr)
 % 2013-05-27 Dan Ellis dpwe@ee.columbia.edu
 
 % parameters
-params.wintime = 0.025
+params.wintime = 0.025;
 params.hoptime = 0.010;
 params.sr = sr;
+
+params.histwin = 2.0;
+params.histhop = 2.0;
 
 % load the data files
 % PCA basis functions
 mapfile = 'pca_sr8k_bpo6_sb24_k10.mat';
 M = load(mapfile);
 params.mapping = M.mapping;
+
 % VQ codewords
 vqfile = 'CB-sbpca-4x60x1000.mat';
 C = load(vqfile);
@@ -30,7 +34,6 @@ autocos = sbpca_autoco(subbands, params);
 
 % principal components
 pcas = sbpca_pca(autocos, params);
-
 % 2013-08-07 Up to here now verified as identical to calcSBPCA
 
 % vector quantize
@@ -38,3 +41,9 @@ VQs = sbpca_vqs(pcas, params);
 
 % histogram
 hists = sbpca_hist(VQs, params);
+% 2013-08-11 Up to here verified as almost identical to calcSBPCA
+% (just off by one or two frames on histogram aggregation windows)
+% but I think these ones are more on-target (ignoring the 25 ms
+% flank, I suppose).
+
+Y = hists;
