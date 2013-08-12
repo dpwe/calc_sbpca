@@ -30,6 +30,8 @@ params.hoptime = 0.010;
 params.sr = sr;
 params.maxlags = round(params.wintime * params.sr);
 
+params.fbank = sbpca_filterbank(params.sr);
+
 [subbands,freqs] = sbpca_subbands(d,sr,params);
 autocos = sbpca_autoco(subbands, params);
 
@@ -55,8 +57,8 @@ hold off;
 %rgcolor();
 gcolor();
 
-tt = [0:size(autocos,2)-1]/sr;
-ff = 1:size(autocos,1);
+tt = [0:size(autocos,1)-1]/sr;
+ff = 1:size(autocos,2);
 
 for frame = 1:nframes
   ftime = (frame-1)*frametime/slowdown;
@@ -64,7 +66,7 @@ for frame = 1:nframes
   if aframe < size(autocos,3)
 
     subplot(212);
-    imgsc(tt,ff,squeeze(autocos(:,:,aframe))); 
+    imgsc(tt,ff,squeeze(autocos(:,:,aframe))'); 
     xx = 1:3:length(ff);
     set(gca, 'YTick', xx);
     set(gca, 'YTickLabel', round(freqs(xx)));
