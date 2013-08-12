@@ -3,23 +3,39 @@ function [d, sr] = sbpca_inv_subbands(subbands, params)
 %    Invert mapping to subbands for SBPCA.
 % 2013-05-27 Dan Ellis dpwe@ee.columbia.edu
 
-persistent fbank
-if isempty(fbank)
-  bpo = 6; nchs = 24;
-  fmin = 100; fb_q = 8; ord = 2; ftype = 2;
-  [fbank.b, fbank.a, fbank.t, w, cf] ...
-      = bpfiltbank(params.sr, fmin, bpo, nchs, fb_q, ord, ftype);
-%  subplot(111)
-%  for i = 1:size(fbank.b,1)
-%    [hh,ww] = freqz(fbank.b(i,:),fbank.a(i,:));
-%    plot(ww/pi, 20*log10(abs(hh)));
-%    hold on;
-%  end
-%  hold off;
+%d = ifilterbank(params.fbank.b, params.fbank.a, subbands, 1, params.fbank.t);
+
+%function X = ifilterbank(B,A,M,N,T)
+% X = ifilterbank(B,A,M,N,T)    Invert IIR filterbank output to single channel.
+% recover number of filters
+[bands, flena] = size(params.fbank.a);
+[sbbands, mcols] = size(subbands);
+if sbbands ~= bands
+  error('Rows of data different from number of filter definitions')
 end
 
-d = ifilterbank(fbank.b, fbank.a, subbands, 1, fbank.t);
+% columns in output may be interpolated
+xcols = 1+(mcols-1);
 
-d = d';
+% initialize output
+X = zeros(1,xcols);
+
+% calculate each row
+for filt = 1:bands
+  % get filter parameters
+  a = params.fbank.a(filt, :);
+  b = params.fbank.b(filt, :);
+  % extract data row & interpolate with zeros
+  interp = zeros(1,xcols);
+  interp(1:xcols) = subbands(filt,:);
+  % time shift
+  t = round(params.fbank.t(filt));	% samples to shift must be an integer
+  interp = [zeros(1,t), interp(1:end-t)];
+  % filter
+  y = filter(b,a,fliplr(interp));
+  % accumulate in output
+  X = X+fliplr(y);
+end
+
+d = X';
 sr = params.sr;
-

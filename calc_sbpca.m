@@ -24,6 +24,14 @@ params.vqcodebook = C.codebook;
 params.vqmeans = C.recMean;
 params.vqstds = C.recStd;
 
+% Setup the filterbank
+%bpo = 6; nchs = 24;
+%fmin = 100; fb_q = 8; ord = 2; ftype = 2;
+%[params.fbank.b, params.fbank.a, params.fbank.t, w, params.fbank.cf] ...
+%      = bpfiltbank(params.sr, fmin, bpo, nchs, fb_q, ord, ftype);
+
+params.fbank = sbpca_filterbank(params.sr);
+
 %%%%%%%%%%% Calculation %%%%%%%%%%%%
 
 % subbands
