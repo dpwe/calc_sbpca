@@ -48,13 +48,24 @@ sc = zeros(nchs, maxlags, nfrms);
 
 %tic;
 
+SLOWWAY = 1;
+
+if SLOWWAY
+  disp('using my_autocorr');
+end
+
+
 for ch = 1:nchs
     
     xx = x(ch,:);
     
 %    disp(['nfrms=',num2str(nfrms),' len(xx)=',num2str(length(xx))]);
-    [c, s]= autocorr(xx,frmL,nfrms,maxlags,winL);
-      
+    if SLOWWAY
+      [c, s]= my_autocorr(xx,frmL,nfrms,maxlags,winL);
+    else
+      [c, s]= autocorr(xx,frmL,nfrms,maxlags,winL);
+    end
+    
     for nf = 1:nfrms
         ac(ch,:,nf) = c((nf-1)*maxlags+(1:maxlags));
         sc(ch,:,nf) = s((nf-1)*maxlags+(1:maxlags));
@@ -62,3 +73,19 @@ for ch = 1:nchs
     
 end
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+function [c,s] = my_autocorr(X,frmL,nfrms,maxlags,winL)
+% pure-matlab version of what autocorr.mex calculates
+% (excepting cumulated errors from single precision)
+
+c = zeros(maxlags, nfrms);
+s = zeros(maxlags, nfrms);
+
+for f = 1:nfrms
+  w1 = X( (f-1)*frmL + [1:winL]);
+  w2 = X( (f-1)*frmL + [1:(winL+maxlags)]);
+  ac = xcorr(w1, w2);
+  c(:,f) = fliplr(ac(winL - 0 + [1:maxlags]));
+  sc = cumsum([w2.^2,zeros(1,winL)]) - cumsum([zeros(1,winL),w2.^2]);
+  s(:,f) = sqrt(sc(winL)*sc(winL + [0:maxlags-1]));
+end

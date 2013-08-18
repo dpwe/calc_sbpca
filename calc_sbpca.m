@@ -1,5 +1,5 @@
-function Y = calc_sbpca(d,sr)
-% Y = calc_sbpca(d,sr)
+function [Y,params] = calc_sbpca(d,sr)
+% [Y,params] = calc_sbpca(d,sr)
 %   Rebuild of SBPCA calculation
 % 2013-05-27 Dan Ellis dpwe@ee.columbia.edu
 
@@ -34,20 +34,20 @@ params.fbank = sbpca_filterbank(params.sr);
 
 %%%%%%%%%%% Calculation %%%%%%%%%%%%
 
-% subbands
+% subbands - <nch> x <ntime>
 subbands = sbpca_subbands(d, sr, params);
 
-% autocorrelate
+% autocorrelate - <nlag> x <nch> x <nframe>
 autocos = sbpca_autoco(subbands, params);
 
-% principal components
+% principal components - <nPC> x <nch> x <nframe>
 pcas = sbpca_pca(autocos, params);
 % 2013-08-07 Up to here now verified as identical to calcSBPCA
 
-% vector quantize
+% vector quantize - <nRect> x <nframe>
 VQs = sbpca_vqs(pcas, params);
 
-% histogram
+% histogram - <nRect x cbSize> x <nblock>
 hists = sbpca_hist(VQs, params);
 % 2013-08-11 Up to here verified as almost identical to calcSBPCA
 % (just off by one or two frames on histogram aggregation windows)

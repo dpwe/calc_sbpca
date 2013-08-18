@@ -18,7 +18,7 @@ end
 xcols = 1+(mcols-1);
 
 % initialize output
-X = zeros(1,xcols);
+d = zeros(xcols,1);
 
 % calculate each row
 for filt = 1:bands
@@ -26,16 +26,15 @@ for filt = 1:bands
   a = params.fbank.a(filt, :);
   b = params.fbank.b(filt, :);
   % extract data row & interpolate with zeros
-  interp = zeros(1,xcols);
-  interp(1:xcols) = subbands(filt,:);
+  interp = zeros(xcols,1);
+  interp(1:xcols) = subbands(filt,:)';
   % time shift
   t = round(params.fbank.t(filt));	% samples to shift must be an integer
-  interp = [zeros(1,t), interp(1:end-t)];
+  interp = [zeros(t,1); interp(1:end-t)];
   % filter
-  y = filter(b,a,fliplr(interp));
+  y = filter(b,a,flipud(interp));
   % accumulate in output
-  X = X+fliplr(y);
+  d = d+flipud(y);
 end
 
-d = X';
 sr = params.sr;

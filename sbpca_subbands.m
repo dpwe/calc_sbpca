@@ -22,7 +22,7 @@ xsize = length(X);
 
 % initialize output array to full size
 % transpose domain  - avoids quite so much swapping during inner loop
-subbands = zeros(xsize,bands);
+subbands = zeros(bands,xsize);
 % normal domain
 %M = zeros(bands,floor((xsize+N-1)/N));
 
@@ -37,11 +37,8 @@ for filt = 1:bands
   % shift the output to discard the first <t> samples
   y = y((t+1):end);
   % rectify the signal
-  subbands(:,filt) = max(y,0)';
+  subbands(filt,:) = max(y,0);
 end
-
-% if transpose domain
-subbands = subbands';
 
 freqs = params.fbank.cf;
 
