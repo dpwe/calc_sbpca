@@ -48,7 +48,7 @@ sc = zeros(nchs, maxlags, nfrms);
 
 %tic;
 
-SLOWWAY = 1;
+SLOWWAY = 1; % 10x slower
 
 if SLOWWAY
   disp('using my_autocorr');
@@ -86,6 +86,9 @@ for f = 1:nfrms
   w2 = X( (f-1)*frmL + [1:(winL+maxlags)]);
   ac = xcorr(w1, w2);
   c(:,f) = fliplr(ac(winL - 0 + [1:maxlags]));
-  sc = cumsum([w2.^2,zeros(1,winL)]) - cumsum([zeros(1,winL),w2.^2]);
-  s(:,f) = sqrt(sc(winL)*sc(winL + [0:maxlags-1]));
+  %sc = cumsum([w2.^2,zeros(1,winL)]) - cumsum([zeros(1,winL),w2.^2]);
+  w22 = w2.^2;
+  sc = cumsum([w22,zeros(1,winL)] - [zeros(1,winL),w22]);
+  %s(:,f) = sqrt(sc(winL)*sc(winL + [0:maxlags-1]));
+  s(:,f) = sqrt(sc(winL)*sc(winL:end-winL-1));
 end

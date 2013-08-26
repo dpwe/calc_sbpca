@@ -1,6 +1,7 @@
-function [Y,params] = calc_sbpca(d,sr)
-% [Y,params] = calc_sbpca(d,sr)
-%   Rebuild of SBPCA calculation
+function [pcas, params] = calc_sbpca(d, sr)
+% [pcas, params] = calc_sbpca(d, sr)
+%   Rebuild of SBPCA calculation - up to subband PCA part
+%   Output pca has dimensions <pcadims> x <nsubbands> x <nframes>
 % 2013-05-27 Dan Ellis dpwe@ee.columbia.edu
 
 % parameters
@@ -16,13 +17,6 @@ params.histhop = 2.0;
 mapfile = 'pca_sr8k_bpo6_sb24_k10.mat';
 M = load(mapfile);
 params.mapping = M.mapping;
-
-% VQ codewords
-vqfile = 'CB-sbpca-4x60x1000.mat';
-C = load(vqfile);
-params.vqcodebook = C.codebook;
-params.vqmeans = C.recMean;
-params.vqstds = C.recStd;
 
 % Setup the filterbank
 %bpo = 6; nchs = 24;
@@ -44,14 +38,3 @@ autocos = sbpca_autoco(subbands, params);
 pcas = sbpca_pca(autocos, params);
 % 2013-08-07 Up to here now verified as identical to calcSBPCA
 
-% vector quantize - <nRect> x <nframe>
-VQs = sbpca_vqs(pcas, params);
-
-% histogram - <nRect x cbSize> x <nblock>
-hists = sbpca_hist(VQs, params);
-% 2013-08-11 Up to here verified as almost identical to calcSBPCA
-% (just off by one or two frames on histogram aggregation windows)
-% but I think these ones are more on-target (ignoring the 25 ms
-% flank, I suppose).
-
-Y = hists;
