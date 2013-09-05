@@ -285,10 +285,6 @@ def my_autocorr(X,frmL,nfrms,maxlags,winL):
 
         c[:,f] = np.correlate(w2, w1)
 
-        sc = ( np.cumsum(np.r_[w2**2, np.zeros(winL)]) 
-               - np.cumsum(np.r_[np.zeros(winL), w2**2]) )
-        s[:,f] = np.sqrt(sc[winL-1]*sc[winL-1:winL-1+maxlags])
-
         w22 = w2**2
         sc = np.cumsum(np.r_[w22, np.zeros(winL)] 
                        - np.r_[np.zeros(winL), w22])
