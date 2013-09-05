@@ -266,6 +266,18 @@ def autocorrelogram(x, sr, maxlags=None, h=0.010, w=0.025):
 
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+################ from mitch's example
+def frames_from_signal(signal, window, shift, mode=None):
+    frames = rolling_window(signal.T, window)
+    oframes = frames[..., 0::shift, :]
+    return np.rollaxis(oframes, 1)
+
+def rolling_window(a, window):
+    shape = a.shape[:-1] + (a.shape[-1] - window + 1, window)
+    strides = a.strides + (a.strides[-1],)
+    return np.lib.stride_tricks.as_strided(a, shape=shape, strides=strides)
+
 def my_autocorr(X,frmL,nfrms,maxlags,winL):
     """
     function [c,s] = my_autocorr(X,frmL,nfrms,maxlags,winL)
@@ -274,21 +286,18 @@ def my_autocorr(X,frmL,nfrms,maxlags,winL):
     """
     
     c = np.zeros( (maxlags, nfrms) )
-    s = np.zeros( (maxlags, nfrms) )
     
+    # Optimizations from Mitch McLaren, <mitchell.mclaren@sri.com>
+    w2mat = frames_from_signal(X, winL+maxlags-1, frmL)
+    w1mat = frames_from_signal(X, winL, frmL)[:,:nfrms]
+
     for f in range(nfrms):
-        base = f*frmL
-        w1 = X[ base:base+winL ]
-        w2 = X[ base:base+winL+maxlags-1 ]
-        #ac = np.correlate(w1, w2, "full")
-        #c[:,f] = ac[ winL+maxlags-1 : winL-1 : -1 ]
+        c[:,f] = np.correlate(w2mat[:,f], w1mat[:,f])
 
-        c[:,f] = np.correlate(w2, w1)
-
-        w22 = w2**2
-        sc = np.cumsum(np.r_[w22, np.zeros(winL)] 
-                       - np.r_[np.zeros(winL), w22])
-        s[:,f] = np.sqrt(sc[winL-1]*sc[winL-1:-winL])
+    w22mat = w2mat**2
+    sc = np.cumsum(np.r_[w22mat, np.zeros((winL,nfrms))] 
+                   - np.r_[np.zeros((winL,nfrms)), w22mat], axis=0)
+    s = np.sqrt(sc[winL-1,:]*sc[winL-1:-winL,:])
     
     return c, s
 
