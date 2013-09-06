@@ -24,6 +24,7 @@ class fbank_def:
     t = None  # np.zeros( bands, float);
     bw = None # np.zeros( bands, float);
     cf = None # np.zeros( bands, float);
+    zi = None # np.zeros( (bands, max(falen,fblen)), float);
 
 def sbpca_filterbank(sr=8000.0, fmin=100.0, bpo=6.0, bands=24, q=8.0, ord=2):
     """
@@ -48,7 +49,12 @@ def sbpca_filterbank(sr=8000.0, fmin=100.0, bpo=6.0, bands=24, q=8.0, ord=2):
         fbank.cf[filter] = math.exp(logminfreq + filter*logfreqfactor)
 
     (fbank.b, fbank.a, fbank.t, fbank.bw) = MakeERBFilter(sr, fbank.cf)
-     
+
+    # clear initial state
+    fbank.zi = np.zeros( (bands, 
+                          max(np.size(fbank.a, axis=1),
+                              np.size(fbank.a, axis=1))-1) )
+
     return fbank
 
 # subplot(111)
@@ -151,9 +157,7 @@ def sbpca_subbands(d,sr,fbank):
     % 2013-05-27 Dan Ellis dpwe@ee.columbia.edu
     """
 
-    postpad = 0.04 # as in sub_cal_ac
-
-    X = np.r_[dithering(d), np.zeros(np.round(postpad*sr))]
+    X = dithering(d)
 
     # recover number of filters
     bands = len(fbank.b)
@@ -170,9 +174,13 @@ def sbpca_subbands(d,sr,fbank):
         # disp(['band ' int2str(filt)]);
         # pad t zeros on the end, since we're going to chop from tail
         t = np.round(fbank.t[filt])
-        y = scipy.signal.lfilter(fbank.b[filt,], 
-                                 fbank.a[filt,], 
-                                 np.r_[X, np.zeros(t)])
+#        y = scipy.signal.lfilter(fbank.b[filt,], 
+#                                 fbank.a[filt,], 
+#                                 np.r_[X, np.zeros(t)])
+        y, fbank.zi[filt,] = scipy.signal.lfilter(fbank.b[filt,], 
+                                                  fbank.a[filt,], 
+                                                  np.r_[X, np.zeros(t)], 
+                                                  zi=fbank.zi[filt,:])
         # shift the output to discard the first <t> samples
         y = y[t:]
         # HW rectify the signal
@@ -186,8 +194,6 @@ def dithering(x):
     % y = dithering(x)
     %    Add low-level noise to x to avoid digital zeros
     """
-    # Ensure consistent random sequence
-    np.random.seed(0)
     # Generate the dither sequence
     xlen = len(x)
     dither = np.random.rand(xlen) + np.random.rand(xlen) - 1
@@ -477,14 +483,37 @@ class SAcC(object):
         using the configuration specified on construction
         Return two vectors, pitch (in Hz) and P(voicing) (posterior)
         """
-        # Run the processing stages
-    	sbs,frqs = sbpca_subbands(d, sr, self.fbank)
-    	acs, ace = sbpca_autoco(sbs, sr, self.ac_win, self.ac_hop, self.maxlags)
-    	pcas     = sbpca_pca(acs, self.mapping)
-    	(nsb,npc,nfr) = np.shape(pcas)
-    	acts     = self.net.apply(pcas.transpose().reshape(nfr, nsb*npc)).transpose()
-    	pth      = sbpca_viterbi(acts, self.hmm_vp)
+        # Ensure consistent random sequence (in dither()
+        np.random.seed(0)
+        # Figure the frame and block sizes
+        blockframes = 100  # How many frames to process each time in loop
+        framesamps = int(np.round(self.ac_hop * sr))
+        winsamps = int(np.round(self.ac_win * sr))
+        nframes = int(max(0, 1 + np.floor((len(d) - winsamps)/framesamps)))
+        # Pad out d with zeros so get right number of winsamps frames
+        X = np.r_[d, np.zeros(self.maxlags)]
+        # extra to read in the end to allow last frame to be fully calculated
+        padsamps = winsamps - framesamps + self.maxlags
+        # Pre-allocate whole activations matrix
+        acts = np.zeros( (len(self.net.OB), nframes) )
 
+        blocksamps = blockframes * framesamps
+        nblocks = int(np.ceil(float(nframes) / float(blockframes)))
+        for block in range(nblocks):
+            # Figure next block of samples, including post-padding
+            blockbasesamp = block*blocksamps
+            blocklastsamp = min(len(X), blockbasesamp + blocksamps + padsamps)
+            # Run the processing stages block by block
+            sbs,frqs = sbpca_subbands(X[blockbasesamp:blocklastsamp], 
+                                      sr, self.fbank)
+            acs, ace = sbpca_autoco(sbs, sr, self.ac_win, self.ac_hop, 
+                                    self.maxlags)
+            pcas     = sbpca_pca(acs, self.mapping)
+            (nsb,npc,nfr) = np.shape(pcas)
+            acts[:,block*blockframes:block*blockframes+nfr] = self.net.apply(pcas.transpose().reshape(nfr, nsb*npc)).transpose()
+        
+        # Run viterbi decode on all activations stitched together
+    	pth      = sbpca_viterbi(acts, self.hmm_vp)
         # first activation is Pr(unvoiced), so Pr(voiced) is its complement
     	pvx = 1.0 - acts[0,]
     	# Convert pitch bin indices to frequencies in Hz by table lookup
