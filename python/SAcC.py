@@ -25,6 +25,7 @@ class fbank_def:
     bw = None # np.zeros( bands, float);
     cf = None # np.zeros( bands, float);
     zi = None # np.zeros( (bands, max(falen,fblen)), float);
+    sr = None # float
 
 def sbpca_filterbank(sr=8000.0, fmin=100.0, bpo=6.0, bands=24, q=8.0, ord=2):
     """
@@ -44,7 +45,7 @@ def sbpca_filterbank(sr=8000.0, fmin=100.0, bpo=6.0, bands=24, q=8.0, ord=2):
     fbank = fbank_def()
 
     fbank.cf = np.zeros( bands )
-    
+
     for filter in range(bands):
         fbank.cf[filter] = math.exp(logminfreq + filter*logfreqfactor)
 
@@ -54,6 +55,8 @@ def sbpca_filterbank(sr=8000.0, fmin=100.0, bpo=6.0, bands=24, q=8.0, ord=2):
     fbank.zi = np.zeros( (bands, 
                           max(np.size(fbank.a, axis=1),
                               np.size(fbank.a, axis=1))-1) )
+
+    fbank.sr = sr;
 
     return fbank
 
@@ -148,22 +151,24 @@ def MakeERBFilter(fs,cf, cq=0):
 
 ############### from sbpca_subbands.m
 
-def sbpca_subbands(d,sr,fbank):
+def sbpca_subbands(d,sr,fbank, discard=0):
     """
-    % [subbands,freqs] = sbpca_subbands(d,sr,params)
+    % subbands, freqs = sbpca_subbands(d,sr,fbank,discard)
     %   Filter into subbands for sbpca
     %   freqs returns the center frequencies for each subband.
     %   subbands is <nchs = 24 x ntime == length(d)>
+    %   if discard is > 0, it means that the input signal was padded 
+    %   at the end with this many frames, but their effect on the state 
+    %   should not be recorded; instead, the next call to sbpca_subband 
+    %   starts from the state after d[0:-discard]
     % 2013-05-27 Dan Ellis dpwe@ee.columbia.edu
     """
-
-    X = dithering(d)
 
     # recover number of filters
     bands = len(fbank.b)
 
-    # find size of X
-    xsize = len(X)
+    # find size of d
+    xsize = len(d)
 
     # initialize output array to full size
     # transpose domain  - avoids quite so much swapping during inner loop
@@ -176,30 +181,31 @@ def sbpca_subbands(d,sr,fbank):
         t = np.round(fbank.t[filt])
 #        y = scipy.signal.lfilter(fbank.b[filt,], 
 #                                 fbank.a[filt,], 
-#                                 np.r_[X, np.zeros(t)])
-        y, fbank.zi[filt,] = scipy.signal.lfilter(fbank.b[filt,], 
-                                                  fbank.a[filt,], 
-                                                  np.r_[X, np.zeros(t)], 
-                                                  zi=fbank.zi[filt,:])
+#                                 np.r_[d, np.zeros(t)])
+        sig = np.r_[d, np.zeros(t)]
+        # run and update state
+        if discard > 0:
+            y, fbank.zi[filt,] = scipy.signal.lfilter(fbank.b[filt,], 
+                                                      fbank.a[filt,], 
+                                                      sig[:-discard], 
+                                                      zi=fbank.zi[filt,])
+            # run last part without storing final state
+            y2, zjunk = scipy.signal.lfilter(fbank.b[filt,], 
+                                             fbank.a[filt,], 
+                                             sig[-discard:], 
+                                             zi=fbank.zi[filt,])
+            y = np.r_[y, y2]
+        else:
+            y, fbank.zi[filt,] = scipy.signal.lfilter(fbank.b[filt,], 
+                                                      fbank.a[filt,], 
+                                                      sig, 
+                                                      zi=fbank.zi[filt,:])           
         # shift the output to discard the first <t> samples
         y = y[t:]
         # HW rectify the signal
         subbands[filt,] = np.maximum(y,0)
 
     return subbands, fbank.cf
-
-
-def dithering(x):
-    """
-    % y = dithering(x)
-    %    Add low-level noise to x to avoid digital zeros
-    """
-    # Generate the dither sequence
-    xlen = len(x)
-    dither = np.random.rand(xlen) + np.random.rand(xlen) - 1
-    # add it on 120 dB below the signal
-    spow = np.std(x)
-    return x + 1e-6 * spow * dither
 
 ############## from sbpca_autoco.m
 
@@ -303,6 +309,7 @@ def my_autocorr(X,frmL,nfrms,maxlags,winL):
     w22mat = w2mat**2
     sc = np.cumsum(np.r_[w22mat, np.zeros((winL,nfrms))] 
                    - np.r_[np.zeros((winL,nfrms)), w22mat], axis=0)
+    sc[sc<0] = 0 # per Mitch 2013-09-19
     s = np.sqrt(sc[winL-1,:]*sc[winL-1:-winL,:])
     
     return c, s
@@ -416,14 +423,32 @@ def viterbi_path(posteriors, priors, transmat):
     # normalize probs of best path to each state, to avoid underflow
     pstate = pstate/np.sum(pstate)
 
+    use_log = True
+    #print "use_log=", use_log
+
     # now calculate forward
-    for i in range(1, nframes):
-        # Find most likely combination of previous prob-to-path, and transition
-        probs = transmat.transpose() * np.outer(posteriors[:,i], pstate)
-        pstate = np.max(probs, axis=1)
-        prev[:,i] = np.argmax(probs, axis=1)
-        # Renormalize to keep probabilities in a sensible range
-        pstate = pstate/sum(pstate)
+    if use_log:
+        # log domain
+        logtransmat = np.log(transmat.transpose())
+        pstate = np.log(pstate)
+        for i in range(1, nframes):
+            probs = (logtransmat 
+                     + np.tile(np.log(posteriors[:,i]),(nbins,1)).transpose() 
+                     + np.tile(pstate, (nbins,1)))
+            pstate = np.max(probs, axis=1)
+            prev[:,i] = np.argmax(probs, axis=1)
+            # Renormalize to keep probabilities in a sensible range
+            pstate = pstate - np.mean(pstate)
+
+    else:
+        # linear likelihood domain
+        for i in range(1, nframes):
+            # Find most likely combination of previous prob-to-path, and transition
+            probs = transmat.transpose() * np.outer(posteriors[:,i], pstate)
+            pstate = np.max(probs, axis=1)
+            prev[:,i] = np.argmax(probs, axis=1)
+            # Renormalize to keep probabilities in a sensible range
+            pstate = pstate/sum(pstate)
 
     # traceback best precedent matrix to get best path
     path = np.zeros(nframes, int)
@@ -435,6 +460,20 @@ def viterbi_path(posteriors, priors, transmat):
     return path
 
 #####################################
+
+def dithering(x):
+    """
+    % y = dithering(x)
+    %    Add low-level noise to x to avoid digital zeros
+    """
+    # Ensure consistent random sequence (in dither()
+    np.random.seed(0)
+    # Generate the dither sequence
+    xlen = len(x)
+    dither = np.random.rand(xlen) + np.random.rand(xlen) - 1
+    # add it on 120 dB below the signal
+    spow = np.std(x)
+    return x + 1e-6 * spow * dither
 
 # For SRI's wavreading code
 import scipy.signal as ss
@@ -483,15 +522,14 @@ class SAcC(object):
         using the configuration specified on construction
         Return two vectors, pitch (in Hz) and P(voicing) (posterior)
         """
-        # Ensure consistent random sequence (in dither()
-        np.random.seed(0)
         # Figure the frame and block sizes
         blockframes = 100  # How many frames to process each time in loop
         framesamps = int(np.round(self.ac_hop * sr))
         winsamps = int(np.round(self.ac_win * sr))
         nframes = int(max(0, 1 + np.floor((len(d) - winsamps)/framesamps)))
         # Pad out d with zeros so get right number of winsamps frames
-        X = np.r_[d, np.zeros(self.maxlags)]
+        # (and add unique dithering noise over whole signal)
+        X = dithering(np.r_[d, np.zeros(self.maxlags)])
         # extra to read in the end to allow last frame to be fully calculated
         padsamps = winsamps - framesamps + self.maxlags
         # Pre-allocate whole activations matrix
@@ -505,7 +543,7 @@ class SAcC(object):
             blocklastsamp = min(len(X), blockbasesamp + blocksamps + padsamps)
             # Run the processing stages block by block
             sbs,frqs = sbpca_subbands(X[blockbasesamp:blocklastsamp], 
-                                      sr, self.fbank)
+                                      sr, self.fbank, padsamps)
             acs, ace = sbpca_autoco(sbs, sr, self.ac_win, self.ac_hop, 
                                     self.maxlags)
             pcas     = sbpca_pca(acs, self.mapping)
@@ -569,5 +607,6 @@ if __name__=="__main__":
     utt = 0
     with open(outptfile, 'w') as opf:
         for i in range(nfr):
-            opf.write('%d %d %f %f\n' % (utt, i, features[i,0], features[i,1]))
+            #opf.write('%d %d %f %f\n' % (utt, i, features[i,0], features[i,1]))
+            opf.write('%f %f\n' % (features[i,0], features[i,1]))
 
