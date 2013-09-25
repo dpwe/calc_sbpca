@@ -5,9 +5,10 @@ import numpy as np
 config = {}
 
 # Input/Output files
-filename    = 'input.wav'
-outfilename = 'sacc.txt'
-outsphname  = 'sacc.sph'
+filename    = 'input8k.wav'
+outfilename = 'sacc8k.txt'
+outsphname  = 'sacc8k.sph'
+outmatname  = 'sacc8k.mat'
 
 # Add config parameters to dictionary
 config['pca_file']    = 'aux/mapping-pca_sr8k_bpo6_sb24_k10.mat' # diff file for py
@@ -33,6 +34,8 @@ config['ac_hop']      = 0.010  # New option in Python - autoco hop
 #config['npcf']        = 67  # not used - inferred from wgt file
 #config['nmlp']        = 68  # not used - inferred from wgt file
 config['hmm_vp']      = 0.9 # interpretation changed c/w Matlab
+config['output_autocos'] = 1  # don't save the raw sbpcas
+
 
 import array as ARRAY
 import ctypes
@@ -62,5 +65,6 @@ extractor = SAcC(config)
 features  = extractor(filename)
 
 # Save features in ascii format
-np.savetxt(outfilename, features, fmt='%.6f', delimiter=' ', newline='\n')
-write_features_in_sph(outsphname, features)
+#np.savetxt(outfilename, features, fmt='%.6f', delimiter=' ', newline='\n')
+#write_features_in_sph(outsphname, features)
+scipy.io.savemat(outmatname, {'features': features})

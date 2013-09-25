@@ -90,5 +90,6 @@ for f = 1:nfrms
   w22 = w2.^2;
   sc = cumsum([w22,zeros(1,winL)] - [zeros(1,winL),w22]);
   %s(:,f) = sqrt(sc(winL)*sc(winL + [0:maxlags-1]));
+  sc(find(sc<0)) = 0; % per Mitch 2013-09-19
   s(:,f) = sqrt(sc(winL)*sc(winL:end-winL-1));
 end

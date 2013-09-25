@@ -17,6 +17,7 @@ maxlags = round(win*sr);
                                         maxlags, hop, win); 
 
 autocos = acf ./ (acf_engy + (acf_engy == 0));
+%disp('no autoco norm')
 
 % Make it lags x subbands x timeframes
 autocos = permute(autocos, [2 1 3]);

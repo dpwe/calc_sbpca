@@ -11,337 +11,10 @@ import math
 import numpy as np
 import scipy.signal
 import scipy.io
+import scipy.cluster.vq
 
 import mlp
-
-#####################################
-############# from sbpca_filterbank.m
-
-# Class to hold the fbank returns
-class fbank_def:
-    a = None # np.zeros( (bands, falen), float);
-    b = None # np.zeros( (bands, fblen), float);
-    t = None  # np.zeros( bands, float);
-    bw = None # np.zeros( bands, float);
-    cf = None # np.zeros( bands, float);
-    zi = None # np.zeros( (bands, max(falen,fblen)), float);
-    sr = None # float
-
-def sbpca_filterbank(sr=8000.0, fmin=100.0, bpo=6.0, bands=24, q=8.0, ord=2):
-    """
-    Define the filterbank for sbpca.
-    Return a structure with fields a, b, t, bw, cf
-    each a vector with each element describing one of the filters
-    """
-    fmax = fmin*math.exp(math.log(2.0)*bands/bpo)
-    
-    if (fmin <= 0):
-        raise RangeError('bpfiltbank: must be 0 < FMIN < FMAX (log scaling)')
-    
-    logfreqfactor = math.log(fmax/fmin)/bands
-    logminfreq    = math.log(fmin)
-    fmax = math.exp(logminfreq + bands * logfreqfactor)
-    
-    fbank = fbank_def()
-
-    fbank.cf = np.zeros( bands )
-
-    for filter in range(bands):
-        fbank.cf[filter] = math.exp(logminfreq + filter*logfreqfactor)
-
-    (fbank.b, fbank.a, fbank.t, fbank.bw) = MakeERBFilter(sr, fbank.cf)
-
-    # clear initial state
-    fbank.zi = np.zeros( (bands, 
-                          max(np.size(fbank.a, axis=1),
-                              np.size(fbank.a, axis=1))-1) )
-
-    fbank.sr = sr;
-
-    return fbank
-
-# subplot(111)
-# for i = 1:size(fbank.b,1)
-#   [hh,ww] = freqz(fbank.b(i,:),fbank.a(i,:));
-#   plot(ww/pi, 20*log10(abs(hh)));
-#   hold on;
-# end
-# hold off;
-
-def MakeERBFilter(fs,cf, cq=0):
-  """
-  % [B,A,Tds,BW] = MakeERBFilter(fs,cf,CQ)     Design a Patterson cochlea filter.
-  % 	Computes the filter coefficients for a single Gammatone filter.
-  %	The filters were defined by Patterson and Holdworth for simulating 
-  % 	the cochlea.  The results are returned as arrays of filter
-  % 	coefficients.  Each row of the filter arrays (forward and feedback)
-  % 	can be passed to the MatLab "filter" function, or you can do all
-  % 	the filtering at once with the ERBFilterBank() function.
-  %	Tds is a vector of group delays in samples for each filter.
-  %	BW is the bandwidth (in Hz) for each filter.
-  % 	The filter bank contains filters for each frequency in <cf>
-  %	If CQ is present and nonzero, force the filters to remain 
-  %	const Q right down into the LF.
-  % dpwe, after malcolm 1994sep19
-  see https://engineering.purdue.edu/~malcolm/interval/1998-010/
-  """
-  # works for vector of cf, but handle a scalar too
-  if type(cf) == float:
-      cf = np.array([cf])
-
-  T=1.0/fs
-  # Change the following parameters if you wish to use a different ERB scale.
-  EarQ = 9.26449  #  Glasberg and Moore Parameters
-  minBW = 24.7
-  order = 1.0
-  
-  # All of the following expressions are derived in Apple TR #35, "An
-  # Efficient Implementation of the Patterson-Holdsworth Cochlear
-  # Filter Bank."
-  if cq==0:
-    ERB = ((cf/EarQ)**order + minBW**order)**(1/order)
-  else:
-    # True-CQ hack - for better phase alignment of filters
-    ERB = (cf/EarQ)*((fs/8)/EarQ+minBW)*EarQ/(fs/8)
-
-  B=1.019*2*math.pi*ERB
-  
-  # Below here, just cf, T and B used
-  
-  gain = abs((-2*np.exp(4j*cf*math.pi*T)*T + 2*np.exp(-(B*T) + 2j*cf*math.pi*T)*T
-               *(np.cos(2*cf*math.pi*T) - math.sqrt(3 - 2**(3/2))
-                 * np.sin(2*cf*math.pi*T))) 
-             * (-2*np.exp(4j*cf*math.pi*T)*T 
-                 + 2*np.exp(-(B*T) + 2j*cf*math.pi*T)*T
-                 * (np.cos(2*cf*math.pi*T) + math.sqrt(3 - 2**(3/2)) 
-                    * np.sin(2*cf*math.pi*T)))
-             * (-2*np.exp(4j*cf*math.pi*T)*T 
-                 + 2*np.exp(-(B*T) + 2j*cf*math.pi*T)*T
-                 * (np.cos(2*cf*math.pi*T) 
-                    - math.sqrt(3 + 2**(3/2))*np.sin(2*cf*math.pi*T)))
-             * (-2*np.exp(4j*cf*math.pi*T)*T + 2*np.exp(-(B*T) + 2j*cf*math.pi*T)*T
-                 * (np.cos(2*cf*math.pi*T) 
-                    + math.sqrt(3 + 2**(3/2))*np.sin(2*cf*math.pi*T))) 
-             / (-2 / np.exp(2*B*T) - 2*np.exp(4j*cf*math.pi*T) 
-                 + 2*(1 + np.exp(4j*cf*math.pi*T))/np.exp(B*T))**4)
-  ncf = len(cf)
-  feedback=np.zeros((ncf,9))
-  forward=np.zeros((ncf,5))
-  forward[:,0] = T**4 / gain
-  forward[:,1] = -4*T**4*np.cos(2*cf*math.pi*T)/np.exp(B*T)/gain
-  forward[:,2] = 6*T**4*np.cos(4*cf*math.pi*T)/np.exp(2*B*T)/gain
-  forward[:,3] = -4*T**4*np.cos(6*cf*math.pi*T)/np.exp(3*B*T)/gain
-  forward[:,4] = T**4*np.cos(8*cf*math.pi*T)/np.exp(4*B*T)/gain
-  feedback[:,0] = np.ones(ncf)
-  feedback[:,1] = -8*np.cos(2*cf*math.pi*T)/np.exp(B*T)
-  feedback[:,2] = 4*(4 + 3*np.cos(4*cf*math.pi*T))/np.exp(2*B*T)
-  feedback[:,3] = -8*(6*np.cos(2*cf*math.pi*T) + np.cos(6*cf*math.pi*T))/np.exp(3*B*T)
-  feedback[:,4] = 2*(18 + 16*np.cos(4*cf*math.pi*T) + np.cos(8*cf*math.pi*T))/np.exp(4*B*T)
-  feedback[:,5] = -8*(6*np.cos(2*cf*math.pi*T) + np.cos(6*cf*math.pi*T))/np.exp(5*B*T)
-  feedback[:,6] = 4*(4 + 3*np.cos(4*cf*math.pi*T))/np.exp(6*B*T)
-  feedback[:,7] = -8*np.cos(2*cf*math.pi*T)/np.exp(7*B*T)
-  feedback[:,8] = np.exp(-8*B*T)
-  
-  # from differentiating the envelope function, t**(n-1)np.exp(-t/wb)
-  n = 4
-  Tds = fs*(n-1)/B
-  BW = ERB
-  
-  return (forward,feedback,Tds,BW)
-
-############### from sbpca_subbands.m
-
-def sbpca_subbands(d,sr,fbank, discard=0):
-    """
-    % subbands, freqs = sbpca_subbands(d,sr,fbank,discard)
-    %   Filter into subbands for sbpca
-    %   freqs returns the center frequencies for each subband.
-    %   subbands is <nchs = 24 x ntime == length(d)>
-    %   if discard is > 0, it means that the input signal was padded 
-    %   at the end with this many frames, but their effect on the state 
-    %   should not be recorded; instead, the next call to sbpca_subband 
-    %   starts from the state after d[0:-discard]
-    % 2013-05-27 Dan Ellis dpwe@ee.columbia.edu
-    """
-
-    # recover number of filters
-    bands = len(fbank.b)
-
-    # find size of d
-    xsize = len(d)
-
-    # initialize output array to full size
-    # transpose domain  - avoids quite so much swapping during inner loop
-    subbands = np.zeros( (bands,xsize) )
-
-    # calculate each row
-    for filt in range(bands):
-        # disp(['band ' int2str(filt)]);
-        # pad t zeros on the end, since we're going to chop from tail
-        t = np.round(fbank.t[filt])
-#        y = scipy.signal.lfilter(fbank.b[filt,], 
-#                                 fbank.a[filt,], 
-#                                 np.r_[d, np.zeros(t)])
-        sig = np.r_[d, np.zeros(t)]
-        # run and update state
-        if discard > 0:
-            y, fbank.zi[filt,] = scipy.signal.lfilter(fbank.b[filt,], 
-                                                      fbank.a[filt,], 
-                                                      sig[:-discard], 
-                                                      zi=fbank.zi[filt,])
-            # run last part without storing final state
-            y2, zjunk = scipy.signal.lfilter(fbank.b[filt,], 
-                                             fbank.a[filt,], 
-                                             sig[-discard:], 
-                                             zi=fbank.zi[filt,])
-            y = np.r_[y, y2]
-        else:
-            y, fbank.zi[filt,] = scipy.signal.lfilter(fbank.b[filt,], 
-                                                      fbank.a[filt,], 
-                                                      sig, 
-                                                      zi=fbank.zi[filt,:])           
-        # shift the output to discard the first <t> samples
-        y = y[t:]
-        # HW rectify the signal
-        subbands[filt,] = np.maximum(y,0)
-
-    return subbands, fbank.cf
-
-############## from sbpca_autoco.m
-
-def sbpca_autoco(subbands, sr=8000, win=0.025, hop=0.010, maxlags=None):
-    """
-    % [autocos,energy] = sbpca_autocos(subbands,sr)
-    %   Calculate autocorrelations over subbands for sbpca.
-    %   subbands is nchs x ntime
-    %   autocos  is nlag x nchs x nframes
-    % 2013-05-27 Dan Ellis dpwe@ee.columbia.edu
-    """
-    if maxlags == None:
-        maxlags = int(np.round(win*sr))
-    
-    # multichannel autocorrelation
-    (acf, acf_engy, lags) = autocorrelogram(subbands, sr, maxlags, hop, win)
-    
-    autocos = acf / (acf_engy + (acf_engy == 0))
-    
-    # Make it lags x subbands x timeframes
-    #autocos = permute(autocos, [2 1 3])
-    
-    return autocos, acf_engy
-
-############## from autocorrelogram.m
-
-def autocorrelogram(x, sr, maxlags=None, h=0.010, w=0.025):
-    """
-    function [ac, sc, lags] = autocorrelogram(x, sr, maxlags, h, w)
-    %    
-    % x is a input signal consisting of multiple rows, each a separate
-    % channel, and sr is samplingrate.  
-    % Using w sec windows at every h-sec length of frame, 
-    % calculate autocorrelation ac and its energy sc of  the input signal.  
-    %
-    % kslee@ee.columbia.edu, 6/16/2005
-    %
-    """
-    
-    if maxlags == None:
-        maxlags = int(np.round(sr * w))
-    
-    # Change time into the length of frame and window
-    frmL = sr*h
-    winL = sr*w
-    
-    lags = range(maxlags)
-    
-    # the channels and points of input signal
-    nchs, npts = np.shape(x)
-    
-    # the total number of frames within each segment
-    nfrms = int(1 + math.floor((npts + 1 - winL - maxlags)/frmL))
-    # line 61 of autocorr.c is 
-    # 		z1 += xp[base+winL+j]*xp[base+winL+j+eta]; 
-    # where base = (f-1)*frmL;
-    # and f = 0..(nfrms-1)
-    # and j = 0..(winL-1)
-    # and eta = 0..(maxlags-1)
-    #  and the index must stay within npts
-    
-    ac = np.zeros( (nchs, maxlags, nfrms) )
-    sc = np.zeros( (nchs, maxlags, nfrms) )
-    
-    for ch in range(nchs):
-        xx = x[ch,]
-        (ac[ch,], sc[ch,]) = my_autocorr(xx,frmL,nfrms,maxlags,winL)
-
-    return ac, sc, lags
-
-
-#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-################ from mitch's example
-def frames_from_signal(signal, window, shift, mode=None):
-    frames = rolling_window(signal.T, window)
-    oframes = frames[..., 0::shift, :]
-    return np.rollaxis(oframes, 1)
-
-def rolling_window(a, window):
-    shape = a.shape[:-1] + (a.shape[-1] - window + 1, window)
-    strides = a.strides + (a.strides[-1],)
-    return np.lib.stride_tricks.as_strided(a, shape=shape, strides=strides)
-
-def my_autocorr(X,frmL,nfrms,maxlags,winL):
-    """
-    function [c,s] = my_autocorr(X,frmL,nfrms,maxlags,winL)
-    % pure-matlab version of what autocorr.mex calculates
-    % (excepting cumulated errors from single precision)
-    """
-    
-    c = np.zeros( (maxlags, nfrms) )
-    
-    # Optimizations from Mitch McLaren, <mitchell.mclaren@sri.com>
-    w2mat = frames_from_signal(X, winL+maxlags-1, frmL)
-    w1mat = frames_from_signal(X, winL, frmL)[:,:nfrms]
-
-    for f in range(nfrms):
-        c[:,f] = np.correlate(w2mat[:,f], w1mat[:,f])
-
-    w22mat = w2mat**2
-    sc = np.cumsum(np.r_[w22mat, np.zeros((winL,nfrms))] 
-                   - np.r_[np.zeros((winL,nfrms)), w22mat], axis=0)
-    sc[sc<0] = 0 # per Mitch 2013-09-19
-    s = np.sqrt(sc[winL-1,:]*sc[winL-1:-winL,:])
-    
-    return c, s
-
-############### from sbpca_pca.m
-def sbpca_pca(autocos, mapping):
-    """
-    % pcas = sbpca_pca(autocos, params)
-    %    Convert subband autocorrelations to principal components
-    %    for SBPCA.
-    %    autocos  is nchs x nlag x nframes
-    %    mapping is the nchs x ndims x nlag PCA mapping matrix
-    %    pcas is nchs x ndims x nfrms
-    % 2013-05-27 Dan Ellis dpwe@ee.columbia.edu
-    You load mapping with:
-    M = scipy.io.loadmat('mapping-pca_sr8k_bpo6_sb24_k10.mat')
-    mapping = M["mapping"]
-    """
-
-    (nchs, nlags, nfrms) = np.shape(autocos)
-
-    (pchs, pdims, plags) = np.shape(mapping)
-
-    pcas = np.zeros( (nchs,pdims,nfrms) )
-    for c in range(nchs):
-        #tmpac = autocos[c,]
-        # To ignore frames that contain NaN elements
-        #sumtmpac = np.sum(tmpac,axis=1);
-        #tmpac[:,nonzero(sumtmpac==nan)] = 0;
-        pcas[c,] = np.dot(mapping[c,], autocos[c,])
-        
-    return pcas
+import sbpca
 
 ################## from sbpca_viterbi.m
 def sbpca_viterbi(posteriors, hmm_vp = 0.9):
@@ -473,6 +146,8 @@ def dithering(x):
     dither = np.random.rand(xlen) + np.random.rand(xlen) - 1
     # add it on 120 dB below the signal
     spow = np.std(x)
+    #print "dithering off"
+    #return x
     return x + 1e-6 * spow * dither
 
 # For SRI's wavreading code
@@ -487,34 +162,38 @@ class SAcC(object):
     def __init__(self, config):
         """ Initialize default values """
         self.config = config
-        self.sr = config['SBF_sr']
-    	self.fbank = sbpca_filterbank(self.sr, config['SBF_fmin'], 
-                                      config['SBF_bpo'], config['nchs'], 
-                                      config['SBF_q'], config['SBF_order'])
-    	M = scipy.io.loadmat(config['pca_file'])
-    	self.mapping = M["mapping"]
-        self.maxlags = np.size(self.mapping, axis=2)
+        # initialize the sbpca subsystem
+        self.sbpca = sbpca.sbpca(config)
+        # initialize the mlp subsytem
     	self.net = mlp.mlp(config['wgt_file'], config['norms_file'])
+        # parameters specific to SAcC part
     	self.ptchtab = np.r_[0, np.loadtxt(config['pcf_file'])]
     	self.hmm_vp = config['hmm_vp']
-        self.ac_win = config['ac_win']
-        self.ac_hop = config['ac_hop']
+        if 'output_pcas' in config:
+            self.output_pcas = config['output_pcas']
+        else:
+            self.output_pcas = False;
+        if 'output_autocos' in config:
+            self.output_autocos = config['output_autocos']
+        else:
+            self.output_autocos = False;
+
 
     def __call__(self, filename):
         """ This is called for each file """
         sr, w = wav.read(filename)  # remove dependency on libsndfile. Only accept wav, use Sox
         d = np.asfarray(w) / 32768.0  # normalize short ints to floats of -1 / 1
-        if sr == 16000 and self.sr == 8000:
+        if sr == 16000 and self.sbpca.sr == 8000:
             # slight trim to ss.decimate to make its phase align to matlab's resample
             d = ss.decimate(np.r_[d[1:],0], 2, ftype='fir')
             delay = 7
             d = np.r_[d[delay:],np.zeros(delay)]
             sr = sr/2
-        assert sr == self.sr
+        assert sr == self.sbpca.sr
         # Actually run it
-        pitches, pvx =  self.SAcC(d, sr)
-        # Return the features in one array
-        return np.c_[pitches, pvx]
+        ftrs =  self.SAcC(d, sr)
+        # Return the features
+        return ftrs
 
     def SAcC(self, d, sr):
         """
@@ -522,42 +201,64 @@ class SAcC(object):
         using the configuration specified on construction
         Return two vectors, pitch (in Hz) and P(voicing) (posterior)
         """
-        # Figure the frame and block sizes
-        blockframes = 100  # How many frames to process each time in loop
-        framesamps = int(np.round(self.ac_hop * sr))
-        winsamps = int(np.round(self.ac_win * sr))
-        nframes = int(max(0, 1 + np.floor((len(d) - winsamps)/framesamps)))
         # Pad out d with zeros so get right number of winsamps frames
         # (and add unique dithering noise over whole signal)
-        X = dithering(np.r_[d, np.zeros(self.maxlags)])
-        # extra to read in the end to allow last frame to be fully calculated
-        padsamps = winsamps - framesamps + self.maxlags
+        X = dithering(np.r_[d, np.zeros(self.sbpca.maxlags)])
         # Pre-allocate whole activations matrix
+        nframes = self.sbpca.nframes(len(d))
         acts = np.zeros( (len(self.net.OB), nframes) )
+        (nChs, nDim, nLag) = np.shape(self.sbpca.mapping)
+        if self.output_pcas:
+            ftrs = np.zeros( (nChs, nDim, nframes) )
+        elif self.output_autocos:
+            ftrs = np.zeros( (nChs, nLag, nframes) )
+        else:
+            ftrs = np.zeros( (2, nframes) )
 
+        # How many frames to process each time in loop
+        blockframes = 100
+        framesamps = self.sbpca.framesamps
         blocksamps = blockframes * framesamps
         nblocks = int(np.ceil(float(nframes) / float(blockframes)))
+
+        # How many frames do we try to prepad?
+        prepadframes = 10
+
+        isfirst = 1
         for block in range(nblocks):
-            # Figure next block of samples, including post-padding
+            # Figure next block of samples, including pre- and post-padding
+            actualprepadframes = min(prepadframes, block*blockframes)
             blockbasesamp = block*blocksamps
-            blocklastsamp = min(len(X), blockbasesamp + blocksamps + padsamps)
-            # Run the processing stages block by block
-            sbs,frqs = sbpca_subbands(X[blockbasesamp:blocklastsamp], 
-                                      sr, self.fbank, padsamps)
-            acs, ace = sbpca_autoco(sbs, sr, self.ac_win, self.ac_hop, 
-                                    self.maxlags)
-            pcas     = sbpca_pca(acs, self.mapping)
-            (nsb,npc,nfr) = np.shape(pcas)
-            acts[:,block*blockframes:block*blockframes+nfr] = self.net.apply(pcas.transpose().reshape(nfr, nsb*npc)).transpose()
+            blocklastsamp = min(len(X), blockbasesamp + blocksamps 
+                                +self.sbpca.padsamps)
+            Xpts = X[(blockbasesamp - actualprepadframes*framesamps):blocklastsamp]
+            # Run the sbpca part
+            if self.output_autocos:
+                ftr = self.sbpca.calc_autocos(Xpts, sr, isfirst)
+                (nsb,nlg,nfr) = np.shape(ftr)
+                blockix = range(block*blockframes, block*blockframes+(nfr-actualprepadframes))
+                ftrs[:,:,blockix] = ftr[:,:,actualprepadframes:]
+            else:
+                ftr = self.sbpca.calc_sbpcas(Xpts, sr, isfirst)
+                (nsb,npc,nfr) = np.shape(ftr)
+                blockix = range(block*blockframes, block*blockframes+(nfr-actualprepadframes))
+                if self.output_pcas:
+                    ftrs[:,:,blockix] = ftr[:,:,actualprepadframes:]
+                # Run the MLP classifier
+                acts[:,blockix] = self.net.apply(ftr[:,:,actualprepadframes:].transpose().reshape((nfr-actualprepadframes), nsb*npc)).transpose()
+            isfirst = 0
         
-        # Run viterbi decode on all activations stitched together
-    	pth      = sbpca_viterbi(acts, self.hmm_vp)
-        # first activation is Pr(unvoiced), so Pr(voiced) is its complement
-    	pvx = 1.0 - acts[0,]
-    	# Convert pitch bin indices to frequencies in Hz by table lookup
-    	pitches = self.ptchtab[pth]
-        # Return one row of two values per frame
-    	return pitches, pvx
+        if (self.output_autocos == 0 & self.output_pcas == 0):
+            # Run viterbi decode on all activations stitched together
+            pth      = sbpca_viterbi(acts, self.hmm_vp)
+            # first activation is Pr(unvoiced), so Pr(voiced) is its complement
+            pvx = 1.0 - acts[0,]
+            # Convert pitch bin indices to frequencies in Hz by table lookup
+            pitches = self.ptchtab[pth]
+            # Return one row of two values per frame
+            ftrs = np.c_[pitches, pvx]
+
+    	return ftrs
 
 
 ############## Provide a command-line wrapper
@@ -574,12 +275,8 @@ if __name__=="__main__":
 
     # Setup config
     config = {}
+    # sbpca params
     config['pca_file']    = 'aux/mapping-pca_sr8k_bpo6_sb24_k10.mat' # diff file for py
-    #config['wgt_file']    = 'aux/rats_sr8k_bpo6_sb24_k10_aCH_h100.wgt'
-    #config['norms_file']  = 'aux/tr_rats_sr8k_bpo6_sb24_k10.norms'
-    config['wgt_file']    = 'aux/sub_qtr_rats_keele_sr8k_bpo6_sb24_k10_ep5_h100.wgt'
-    config['norms_file']  = 'aux/tr_keele_rbf_pinknoise_sr8000_bpo6_nchs24_k10.norms'
-    config['pcf_file']    = 'aux/pitch_candidates_freqz.txt'
     config['nchs']        = 24
     config['SBF_sr']      = 8000
     config['SBF_fmin']    = 100
@@ -588,6 +285,13 @@ if __name__=="__main__":
     config['SBF_order']   = 2  # not actually used for SlanPat ERB filters
     config['ac_win']      = 0.025  # New option in Python - autoco window len
     config['ac_hop']      = 0.010  # New option in Python - autoco hop
+    # mlp params
+    #config['wgt_file']    = 'aux/rats_sr8k_bpo6_sb24_k10_aCH_h100.wgt'
+    #config['norms_file']  = 'aux/tr_rats_sr8k_bpo6_sb24_k10.norms'
+    config['wgt_file']    = 'aux/sub_qtr_rats_keele_sr8k_bpo6_sb24_k10_ep5_h100.wgt'
+    config['norms_file']  = 'aux/tr_keele_rbf_pinknoise_sr8000_bpo6_nchs24_k10.norms'
+    config['pcf_file']    = 'aux/pitch_candidates_freqz.txt'
+    # viterbi decode params
     config['hmm_vp']      = 0.9 # interpretation changed c/w Matlab
 
     # Configure
