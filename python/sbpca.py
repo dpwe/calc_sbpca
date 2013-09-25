@@ -8,6 +8,9 @@ import math
 import numpy as np
 import scipy.signal
 
+# c extension to calculate autocorr
+import _autocorr_py
+
 #####################################
 ############# from sbpca_filterbank.m
 
@@ -218,27 +221,26 @@ def sbpca_autoco(subbands, sr=8000, win=0.025, hop=0.010, maxlags=None):
         maxlags = int(np.round(win*sr))
     
     # multichannel autocorrelation
-    (acf, acf_engy, lags) = autocorrelogram(subbands, sr, maxlags, hop, win)
+    (autocos, lags) = autocorrelogram(subbands, sr, maxlags, hop, win)
     
-    autocos = acf / (acf_engy + (acf_engy == 0))
     #autocos = acf
     #print "no normalization"
 
     # Make it lags x subbands x timeframes
     #autocos = permute(autocos, [2 1 3])
     
-    return autocos, acf_engy
+    return autocos #, acf_engy
 
 ############## from autocorrelogram.m
 
 def autocorrelogram(x, sr, maxlags=None, h=0.010, w=0.025):
     """
-    function [ac, sc, lags] = autocorrelogram(x, sr, maxlags, h, w)
+    function [ac, lags] = autocorrelogram(x, sr, maxlags, h, w)
     %    
     % x is a input signal consisting of multiple rows, each a separate
     % channel, and sr is samplingrate.  
     % Using w sec windows at every h-sec length of frame, 
-    % calculate autocorrelation ac and its energy sc of  the input signal.  
+    % calculate normalized autocorrelation ac and its energy sc of  the input signal.  
     %
     % kslee@ee.columbia.edu, 6/16/2005
     %
@@ -248,8 +250,8 @@ def autocorrelogram(x, sr, maxlags=None, h=0.010, w=0.025):
         maxlags = int(np.round(sr * w))
     
     # Change time into the length of frame and window
-    frmL = sr*h
-    winL = sr*w
+    frmL = int(sr*h)
+    winL = int(sr*w)
     
     lags = range(maxlags)
     
@@ -268,14 +270,19 @@ def autocorrelogram(x, sr, maxlags=None, h=0.010, w=0.025):
 
     #print "nchs=%d maxlags=%d nfrms=%d" % (nchs, maxlags, nfrms)
     
-    ac = np.zeros( (nchs, maxlags, nfrms) )
-    sc = np.zeros( (nchs, maxlags, nfrms) )
-    
+    #ac = np.zeros( (nchs, maxlags, nfrms) )
+    #sc = np.zeros( (nchs, maxlags, nfrms) )
+    autocos = np.zeros( (nchs, maxlags, nfrms) )
+
     for ch in range(nchs):
         xx = x[ch,]
-        (ac[ch,], sc[ch,]) = my_autocorr(xx,frmL,nfrms,maxlags,winL)
+        # This is the pure-python version
+        #autocos[ch,] = my_autocorr(xx,frmL,nfrms,maxlags,winL)
+        # This is the optimized C version, about 20% faster...
+        autocos[ch,] = _autocorr_py.autocorr(xx, frmL, nfrms, maxlags, winL).transpose()
 
-    return ac, sc, lags
+    #autocos = acf / (acf_engy + (acf_engy == 0))
+    return autocos, lags
 
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -293,7 +300,7 @@ def rolling_window(a, window):
 
 def my_autocorr(X,frmL,nfrms,maxlags,winL):
     """
-    function [c,s] = my_autocorr(X,frmL,nfrms,maxlags,winL)
+    function c = my_autocorr(X,frmL,nfrms,maxlags,winL)
     % pure-matlab version of what autocorr.mex calculates
     % (excepting cumulated errors from single precision)
     """
@@ -312,8 +319,8 @@ def my_autocorr(X,frmL,nfrms,maxlags,winL):
                    - np.r_[np.zeros((winL,nfrms)), w22mat], axis=0)
     sc[sc<0] = 0 # per Mitch 2013-09-19
     s = np.sqrt(sc[winL-1,:]*sc[winL-1:-winL,:])
-    
-    return c, s
+
+    return c/(s + (s==0))
 
 ############### from sbpca_pca.m
 def sbpca_pca(autocos, mapping):
@@ -386,8 +393,8 @@ class sbpca(object):
         else:
             npad = 0
         sbs,frqs = sbpca_subbands(d, sr, self.fbank, npad, isfirst)
-        acs, ace = sbpca_autoco(sbs, sr, self.ac_win, self.ac_hop, 
-                                self.maxlags)
+        acs = sbpca_autoco(sbs, sr, self.ac_win, self.ac_hop, 
+                           self.maxlags)
         return acs
 
     def calc_sbpcas(self, d, sr, isfirst=0):

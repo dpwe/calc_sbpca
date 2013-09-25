@@ -34,7 +34,7 @@ config['ac_hop']      = 0.010  # New option in Python - autoco hop
 #config['npcf']        = 67  # not used - inferred from wgt file
 #config['nmlp']        = 68  # not used - inferred from wgt file
 config['hmm_vp']      = 0.9 # interpretation changed c/w Matlab
-config['output_autocos'] = 1  # don't save the raw sbpcas
+config['output_autocos'] = 0  # don't save the raw sbpcas
 
 
 import array as ARRAY
@@ -65,6 +65,6 @@ extractor = SAcC(config)
 features  = extractor(filename)
 
 # Save features in ascii format
-#np.savetxt(outfilename, features, fmt='%.6f', delimiter=' ', newline='\n')
+np.savetxt(outfilename, features, fmt='%.6f', delimiter=' ', newline='\n')
 #write_features_in_sph(outsphname, features)
-scipy.io.savemat(outmatname, {'features': features})
+#scipy.io.savemat(outmatname, {'features': features})

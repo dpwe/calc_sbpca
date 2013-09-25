@@ -1,13 +1,23 @@
 /*
- * autocorr.c - calculate normalized auto-correlation
- *
- * kslee@ee.columbia.edu, 3/3/2006
+ * autocorr_py.c - calculate normalized auto-correlation
+ *    Python extension version
+ * 2013-08-26 Dan Ellis dpwe@ee.columbia.edu 
+ *   after kslee@ee.columbia.edu, 3/3/2006
  */
 
-#include "mex.h"
+/* see http://wiki.scipy.org/Cookbook/C_Extensions/NumPy_arrays */
+#include <Python.h>
+#include "arrayobject.h" 
 #include <math.h>
 
-#define SQRT(x) sqrt(x)
+//#define SQRT(x) sqrt(x)
+
+double SQRT(double x) {
+    if (x <= 0) 
+	return 1;
+    else 
+	return sqrt(x);
+}
 
 /* 
  * calc_corr
@@ -38,10 +48,10 @@
  */
 
 
-static void calc_corr(
+static void calc_norm_corr(
 		      double xp[], /* Input vector */
-		      double *ac, /* Autocorrelation Matrix */
-		      double *sc, /* Scaling Factor Matrix for Normalizing AC */
+		      double **acp, /* Autocorrelation Matrix [nfrms][maxlags] */
+		      //double *sc, /* Scaling Factor Matrix for Normalizing AC */
 		      int winL,   /* size of window vector */
 		      int lagL,   /* size of lag */
 		      int frmL,   /* size of a frame */
@@ -65,6 +75,8 @@ static void calc_corr(
     int frmL2 = frmL - frmL1;             /* points into newer */
 
     /*	fprintf(stderr, "histlen=%d frmlL1=%d frmL2=%d\n", histlen, frmL1, frmL2); */
+
+    double *e = (double*)malloc(nfrm*sizeof(double));
 
     for (eta=0;eta<lagL;eta++) {
 
@@ -113,8 +125,8 @@ static void calc_corr(
 	z1 += s1;
 	z2 += s2;
 	/* .. giving us the full result for the first window */
-	ac[eta] = z1;
-	sc[eta] = SQRT(ac[0]*(z2));
+	if (eta == 0)   e[0] = z2;
+	acp[0][eta] = z1/SQRT(z1*e[0]);
 	/* .. but also store as partial sums in the most recent 
 	   value in the fifo */
 	achist[hix] = s1;
@@ -162,66 +174,133 @@ static void calc_corr(
 	       the newest entries: write in the partial sums */
 	    achist[hix] = s1;
 	    schist[hix] = s2;
+	    if (eta == 0)   e[f] = z2;
 	    /* finally, write the actual raw autocorrelation and normalizing 
                constants from the accumulators */
-	    ac[f*lagL+eta] = z1;
-	    sc[f*lagL+eta] = SQRT(ac[f*lagL]*z2);
+	    acp[f][eta] = z1/SQRT(e[f]*z2);
 	}
 	
     }
-    
+    free(e);
 }
 
-void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
+
+/* utilities from http://wiki.scipy.org/Cookbook/C_Extensions/NumPy_arrays */
+
+double **ptrvector(long n) { 
+   double **v;
+   v=(double **)malloc((size_t) (n*sizeof(double)));
+   if (!v)   {
+      printf("In **ptrvector. Allocation of memory for double array failed.");
+      exit(0); }
+   return v;
+}
+
+double **pymatrix_to_Carrayptrs(PyArrayObject *arrayin) { 
+   double **c, *a;
+   int i,n,m;
+
+   n=arrayin->dimensions[0];
+   m=arrayin->dimensions[1];
+   c=ptrvector(n);
+   a=(double *) arrayin->data; /* pointer to arrayin data as double */
+   for ( i=0; i<n; i++) {
+      c[i]=a+i*m; }
+   return c;
+}
+
+/* ==== Check that PyArrayObject is a double (Float) type and a matrix ==============
+    return 1 if an error and raise exception */ 
+int  not_doublematrix(PyArrayObject *mat)  {
+    if (mat->descr->type_num != NPY_DOUBLE || mat->nd != 2)  {
+        PyErr_SetString(PyExc_ValueError,
+			"In not_doublematrix: array must be of type Float and 2 dimensional (n x m).");
+        return 1;  }
+    return 0;
+}
+
+ /* ==== Create 1D Carray from PyArray ======================
+    Assumes PyArray is contiguous in memory.             */
+double *pyvector_to_Carrayptrs(PyArrayObject *arrayin)  {
+    int i,n;
+    
+    n=arrayin->dimensions[0];
+    return (double *) arrayin->data;  /* pointer to arrayin data as double */
+}
+
+/* ==== Check that PyArrayObject is a double (Float) type and a vector ==============
+    return 1 if an error and raise exception */ 
+int  not_doublevector(PyArrayObject *vec)  {
+    if (vec->descr->type_num != NPY_DOUBLE || vec->nd != 1)  {
+        PyErr_SetString(PyExc_ValueError,
+            "In not_doublevector: array must be of type Float and 1 dimensional (n).");
+        return 1;  }
+    return 0;
+}
+
+static PyObject *
+autocorr_py_autocorr(PyObject *self, PyObject *args)
 {
-    int winL, lagL, frmL, nfrm;
-    double *xp, *ac, *sc;
+    PyArrayObject *xpin, *acout, *scout;
+    double *xp;
+    double **acp;
+    int i,j,npts,m, dims[2];
+    int frmL, lagL, nfrm, winL;
 
-    /* fprintf(stderr, "autocorr entered\n"); */
+    /* parse input args */
+    if (!PyArg_ParseTuple(args, "O!iiii", 
+			  &PyArray_Type, &xpin, &frmL, &nfrm, &lagL, &winL))
+	return NULL;
+//    fprintf(stderr, "xpin=0x%lx frmL=%d lagL=%d nfrm=%d winL=%d\n", 
+//	    xpin, frmL, lagL, nfrm, winL);
+    
+    if (xpin == NULL)  return NULL;
 
-    /* Do some error checking */
-    if (nrhs < 5)
-	mexErrMsgTxt("Five input arguments required. ");
-
-    /* Get the length of window, lag and frame*/
-    winL = mxGetScalar(prhs[4]);
-    nfrm = mxGetScalar(prhs[2]);
-    lagL = mxGetScalar(prhs[3]);
-    frmL = mxGetScalar(prhs[1]);
-	
-    /* Create a matrix for the return argument */
-    plhs[0] = mxCreateDoubleMatrix(nfrm*lagL,1,mxREAL);
-    plhs[1] = mxCreateDoubleMatrix(nfrm*lagL,1,mxREAL);
-
-
-    /* Assign pointers to the parameters */
-    xp = mxGetPr(prhs[0]);
-    ac = mxGetPr(plhs[0]);
-    sc = mxGetPr(plhs[1]);	
-
-    int xpn = mxGetN(prhs[0]);
-    int xpm = mxGetM(prhs[0]);
-
-    /* fprintf(stderr, "xp size = %d x %d = %d (last val %f)\n", 
-	    xpn, xpm, xpn*xpm, xp[(xpn*xpm) - 1]); */
-
-    /* Check that number of frames doesn't exceed input data size */
-    int npts = xpn*xpm;
-    /* this is derived from the largest-index access line in calc_corr, i.e.
-       z1 += xp[(f-1)*frmL+winL+j]*xp[(f-1)*frmL+winL+j+eta]; */
+    /* Check that object input is 'double' type and a vector
+       Not needed if python wrapper function checks before call to this routine */
+    if (not_doublevector(xpin)) return NULL;
+     
+    /* Get the dimension of the input */
+    npts = xpin->dimensions[0];
+    
     int lastpt = (nfrm - 1 - 1)*frmL + winL + (frmL - 1) + (lagL - 1);
     if (lastpt >= npts) {
 	/* FREAKOUT */
-	char msg[64];
-	sprintf(msg,"autocorr mex: need %d points but only %d passed", 
-		lastpt+1, npts);
-	mexErrMsgTxt(msg);
+	//char msg[64];
+	//sprintf(msg,"autocorr mex: need %d points but only %d passed", 
+	//	lastpt+1, npts);
+	//mexErrMsgTxt(msg);
+	return NULL;
     }
 
-    /* Calculating the auto-correlation with hanning windowed input */
-    calc_corr(xp, ac, sc, winL, lagL, frmL, nfrm );
+    /* Set up output matrices */
+    dims[0] = nfrm;
+    dims[1] = lagL;
+    /* output of raw autocorrelations */
+    acout = (PyArrayObject *)PyArray_FromDims(2, dims, NPY_DOUBLE);
+         
+    /* Change contiguous arrays into C *arrays   */
+    xp = pyvector_to_Carrayptrs(xpin);
+    acp = pymatrix_to_Carrayptrs(acout);
+     
+    /* run calculation */
+    calc_norm_corr(xp, acp, winL, lagL, frmL, nfrm);
 
-    /* fprintf(stderr, "autocorr done\n"); */
+    /* return the results */
+    return PyArray_Return(acout);
 }
 
+/* standard hooks to Python, per http://docs.python.org/2/extending/extending.html */
 	
+static PyMethodDef AutocorrMethods[] = {
+    {"autocorr",  autocorr_py_autocorr, METH_VARARGS},
+    {NULL, NULL}        /* Sentinel */
+};
+
+
+/* ==== Initialize the C_test functions ====================== */
+// Module name must be _autocorrmodule in compile and linked 
+void init_autocorr_py()  {
+    (void) Py_InitModule("_autocorr_py", AutocorrMethods);
+    import_array();  // Must be present for NumPy.  Called first after above line.
+}
