@@ -169,14 +169,30 @@ class SAcC(object):
         # parameters specific to SAcC part
     	self.ptchtab = np.r_[0, np.loadtxt(config['pcf_file'])]
     	self.hmm_vp = config['hmm_vp']
-        if 'output_pcas' in config:
-            self.output_pcas = config['output_pcas']
-        else:
-            self.output_pcas = False;
-        if 'output_autocos' in config:
-            self.output_autocos = config['output_autocos']
-        else:
-            self.output_autocos = False;
+        self.n_s = 10.0
+        self.write_rownum = False
+        self.write_time = False
+        self.write_sbac = False
+        self.write_sbpca = False
+        self.write_posteriors = False
+        self.write_pitch = True
+        self.write_pvx = True
+        if 'n_s' in config:
+            self.n_s = config['n_s']
+        if 'write_rownum' in config:
+            self.write_rownum = config['write_rownum']
+        if 'write_time' in config:
+            self.write_time = config['write_time']
+        if 'write_sbac' in config:
+            self.write_sbac = config['write_sbac']
+        if 'write_sbpca' in config:
+            self.write_sbpca = config['write_sbpca']
+        if 'write_posteriors' in config:
+            self.write_posteriors = config['write_posteriors']
+        if 'write_pitch' in config:
+            self.write_pitch = config['write_pitch']
+        if 'write_pvx' in config:
+            self.write_pvx = config['write_pvx']
 
 
     def __call__(self, filename):
@@ -206,18 +222,20 @@ class SAcC(object):
         X = dithering(np.r_[d, np.zeros(self.sbpca.maxlags)])
         # Pre-allocate whole activations matrix
         nframes = self.sbpca.nframes(len(d))
-        acts = np.zeros( (len(self.net.OB), nframes) )
-        (nChs, nDim, nLag) = np.shape(self.sbpca.mapping)
-        if self.output_pcas:
-            ftrs = np.zeros( (nChs, nDim, nframes) )
-        elif self.output_autocos:
-            ftrs = np.zeros( (nChs, nLag, nframes) )
-        else:
-            ftrs = np.zeros( (2, nframes) )
+#        acts = np.zeros( (len(self.net.OB), nframes) )
+        acts = np.zeros( (len(self.net.OB), 0) )
+#        (nChs, nDim, nLag) = np.shape(self.sbpca.mapping)
+#        if self.output_pcas:
+#            ftrs = np.zeros( (nChs, nDim, nframes) )
+#        elif self.output_autocos:
+#            ftrs = np.zeros( (nChs, nLag, nframes) )
+#        else:
+#            ftrs = np.zeros( (2, nframes) )
 
-        # How many frames to process each time in loop
-        blockframes = 100
         framesamps = self.sbpca.framesamps
+        # How many frames to process each time in loop
+        #blockframes = 100
+        blockframes = max(1, int(np.ceil(self.n_s * (sr/framesamps))))
         blocksamps = blockframes * framesamps
         nblocks = int(np.ceil(float(nframes) / float(blockframes)))
 
@@ -225,6 +243,7 @@ class SAcC(object):
         prepadframes = 10
 
         isfirst = 1
+        donefr = 0
         for block in range(nblocks):
             # Figure next block of samples, including pre- and post-padding
             actualprepadframes = min(prepadframes, block*blockframes)
@@ -233,32 +252,50 @@ class SAcC(object):
                                 +self.sbpca.padsamps)
             Xpts = X[(blockbasesamp - actualprepadframes*framesamps):blocklastsamp]
             # Run the sbpca part
-            if self.output_autocos:
-                ftr = self.sbpca.calc_autocos(Xpts, sr, isfirst)
-                (nsb,nlg,nfr) = np.shape(ftr)
-                blockix = range(block*blockframes, block*blockframes+(nfr-actualprepadframes))
-                ftrs[:,:,blockix] = ftr[:,:,actualprepadframes:]
+            acs = self.sbpca.calc_autocos(Xpts, sr, isfirst)
+            (nsb,nlg,nfr) = np.shape(acs) # 24, 200, 501
+            # Now we know how many frames this block...
+            nactfr = nfr - actualprepadframes
+            ftr = np.zeros( (nactfr, 0), float)
+            frixs = range(donefr, donefr+nactfr)
+            donefr += nactfr
+            if self.write_rownum:  
+                ftr = np.c_[ftr, np.array(frixs,ndmin=2).transpose()]
+            if self.write_time:
+                ftr = np.c_[ftr, self.sbpca.ac_hop * np.array(frixs,ndmin=2).transpose()]
+            blockix = range(block*blockframes, block*blockframes+nactfr)
+            if self.write_sbac:
+                ftr = np.c_[ftr, np.reshape(ftr[:,:,actualprepadframes:], (nsb*nlg, nactfr)).transpose()]
+            pcas = sbpca.sbpca_pca(acs[:,:,actualprepadframes:], self.sbpca.mapping)
+            (nsb,npc,nactfr) = np.shape(pcas)
+            #pcasr = np.reshape(pcas, (nsb*npc, nactfr)).transpose()
+            # Required order of each frame is pcdim slowest, subband fastest!
+            pcasr = pcas.transpose().reshape((nactfr, nsb*npc))
+            if self.write_sbpca:
+                ftr = np.c_[ftr, pcasr]
+            # Run the MLP classifier
+            act = self.net.apply(pcasr).transpose()
+            #acts[:,blockix] = act
+            acts = np.c_[acts, act]
+            if self.write_posteriors:
+                ftr = np.c_[ftr, acts]
+            if isfirst:
+                isfirst = 0
+                ftrs = ftr
             else:
-                ftr = self.sbpca.calc_sbpcas(Xpts, sr, isfirst)
-                (nsb,npc,nfr) = np.shape(ftr)
-                blockix = range(block*blockframes, block*blockframes+(nfr-actualprepadframes))
-                if self.output_pcas:
-                    ftrs[:,:,blockix] = ftr[:,:,actualprepadframes:]
-                # Run the MLP classifier
-                acts[:,blockix] = self.net.apply(ftr[:,:,actualprepadframes:].transpose().reshape((nfr-actualprepadframes), nsb*npc)).transpose()
-            isfirst = 0
-        
-        if (self.output_autocos == 0 & self.output_pcas == 0):
+                ftrs = np.r_[ftrs, ftr]        
+
+        if self.write_pitch:
             # Run viterbi decode on all activations stitched together
             pth      = sbpca_viterbi(acts, self.hmm_vp)
-            # first activation is Pr(unvoiced), so Pr(voiced) is its complement
-            pvx = 1.0 - acts[0,]
             # Convert pitch bin indices to frequencies in Hz by table lookup
-            pitches = self.ptchtab[pth]
-            # Return one row of two values per frame
-            ftrs = np.c_[pitches, pvx]
-
-    	return ftrs
+            ftrs = np.c_[ftrs, self.ptchtab[pth]]
+            
+        # first activation is Pr(unvoiced), so Pr(voiced) is its complement
+        if self.write_pvx:
+            ftrs = np.c_[ftrs, 1.0 - acts[0,]]
+    	
+        return ftrs
 
 
 ############## Provide a command-line wrapper
@@ -277,22 +314,45 @@ if __name__=="__main__":
     config = {}
     # sbpca params
     config['pca_file']    = 'aux/mapping-pca_sr8k_bpo6_sb24_k10.mat' # diff file for py
+    #config['kdim'] = 10 # inferred from mapping file
     config['nchs']        = 24
-    config['SBF_sr']      = 8000
-    config['SBF_fmin']    = 100
-    config['SBF_bpo']     = 6
-    config['SBF_q']       = 8  # not actually used for SlanPat ERB filters
+    config['n_s']         = 5.0  # secs per process block, controls blockframes
+    config['SBF_sr']      = 8000.0
+    config['SBF_fmin']    = 100.0
+    config['SBF_bpo']     = 6.0
+    config['SBF_q']       = 8.0  # not actually used for SlanPat ERB filters
     config['SBF_order']   = 2  # not actually used for SlanPat ERB filters
-    config['ac_win']      = 0.025  # New option in Python - autoco window len
-    config['ac_hop']      = 0.010  # New option in Python - autoco hop
+    config['SBF_ftype']   = 2  # ignored - python is always SlanPat ERB
+    config['twin']        = 0.025  # autoco window len
+    config['thop']        = 0.010  # autoco hop
     # mlp params
     #config['wgt_file']    = 'aux/rats_sr8k_bpo6_sb24_k10_aCH_h100.wgt'
     #config['norms_file']  = 'aux/tr_rats_sr8k_bpo6_sb24_k10.norms'
     config['wgt_file']    = 'aux/sub_qtr_rats_keele_sr8k_bpo6_sb24_k10_ep5_h100.wgt'
     config['norms_file']  = 'aux/tr_keele_rbf_pinknoise_sr8000_bpo6_nchs24_k10.norms'
+    #config['nhid'] = 100 # inferred from wgt file, + input size from norms file
+    #config['nmlp'] = 68  # output layer size, inferred from wgt file
     config['pcf_file']    = 'aux/pitch_candidates_freqz.txt'
     # viterbi decode params
     config['hmm_vp']      = 0.9 # interpretation changed c/w Matlab
+    # output options
+    config['write_rownum'] = 0 # prepend row number
+    config['write_time']  = 0  # prepend time in seconds to output
+    config['write_sbac'] = 0   # output raw autocorrelations (big - 24 x 200)
+    config['write_sbpca'] = 0  # output subband pcas (24 x 10)
+    config['write_posteriors'] = 0 # output raw pitch posteriors (68)
+    config['write_pitch'] = 1  # output the actual pitch value in Hz (1)
+    config['write_pvx'] = 1    # output just 1-posterior(unvoiced) (1)
+    # Tricks with segmenting utterances not implemented in Python
+    #config['start_utt'] = 0    # what utterance number to start at
+    #config['incr_utt'] = 0     # increment the utterance each seg (?)
+    #config['segs_per_utt'] = 1 # break each utterance into this many segs
+    config['verbose'] = 0
+    #config['disp'] = 0         # no display code in Python
+    # Output file format is the concern of the calling layer
+    #config['sph_out'] = 0
+    #config['mat_out'] = 0
+    #config['txt_out'] = 1
 
     # Configure
     sacc_extractor = SAcC(config)

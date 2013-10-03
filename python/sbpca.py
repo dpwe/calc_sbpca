@@ -366,14 +366,14 @@ class sbpca(object):
     	M = scipy.io.loadmat(config['pca_file'])
     	self.mapping = M["mapping"]
         self.maxlags = np.size(self.mapping, axis=2)
-        self.ac_win = config['ac_win']
-        self.ac_hop = config['ac_hop']
+        self.ac_win = config['twin']
+        self.ac_hop = config['thop']
+        self.nchs = np.size(self.mapping, axis=0) # added late, for clients to read
         self.framesamps = int(np.round(self.ac_hop * self.sr))
         self.winsamps = int(np.round(self.ac_win * self.sr))
         # extra to read in the end to allow last frame to be fully calculated
         # read by clients
-        self.padsamps = self.winsamps - self.framesamps + self.maxlags + int(np.max(self.fbank.t))
-
+        self.padsamps = self.winsamps - self.framesamps + self.maxlags # + int(np.max(self.fbank.t))
 
     def nframes(self,lend):
         """
@@ -387,6 +387,7 @@ class sbpca(object):
         If "isfirst" is set, clear the filter state and warm up again
         """
         # Run the processing stages block by block
+        #print "calc_autocos: len(d)=", len(d), " isfirst=", isfirst
         if isfirst:
             self.fbank.clear_zi()
             npad = self.padsamps
