@@ -48,7 +48,7 @@ sc = zeros(nchs, maxlags, nfrms);
 
 %tic;
 
-SLOWWAY = 1; % 10x slower
+SLOWWAY = 0; % 10x slower
 
 if SLOWWAY
   disp('using my_autocorr');

@@ -26,7 +26,7 @@ for b = 1:nblocks
   frameix = (frames+1):min(frames+framesperblock, vqslen);
   for cb = 1:ncb
     for f = frameix
-      ix = (cb-1)*1000 + vqs(cb, f);
+      ix = (cb-1)*ncw + vqs(cb, f);
       hists(ix, b) = hists(ix ,b) + 1;
     end
   end

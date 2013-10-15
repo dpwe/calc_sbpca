@@ -164,6 +164,9 @@ def sbpca_subbands(d,sr,fbank, discard=0, isfirst=0):
     % 2013-05-27 Dan Ellis dpwe@ee.columbia.edu
     """
 
+    if sr != fbank.sr:
+        raise ValueError('sample rate mismatch')
+
     # recover number of filters
     bands = len(fbank.b)
 

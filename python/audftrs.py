@@ -10,6 +10,7 @@ import math
 import numpy as np
 import scipy.signal
 import scipy.io
+import scipy.cluster
 
 import mlp
 import sbpca
@@ -73,6 +74,47 @@ def acVQQuantize(D, vqcodes, vqmean, vqstd):
     return I
 
 
+
+#####################################
+def sbpca_hist(vqs, winframes, hopframes, codesperblock):
+    """
+    % hists = sbpca_hist(vqs, params)
+    %    Collapse the vq codewords into per-segment histograms.
+    %    Each column of hists is the mean of all the frames in
+    %    params.histwin seconds every params.histhop seconds.
+    %
+    % 2013-08-11 Dan Ellis dpwe@ee.columbia.edu rebuild of sbcpa calculation
+    """
+
+    #winframes = int(np.round(params.histwin / params.hoptime))
+    #hopframes = int(np.round(params.histhop / params.hoptime))
+
+    base = 0
+    codeblocks, vqslen = np.shape(vqs)
+
+    nblocks = int(np.round(vqslen/float(hopframes)))
+
+    #[codeblocks, ndim, codesperblock] = size(params.vqcodebook); % 4, (60), 1000
+
+    nbins = codeblocks * codesperblock;
+
+    hists = np.zeros( (nbins, nblocks), float)
+
+    for b in range(nblocks):
+        frames = b*hopframes
+        frameix = range(frames, min(frames+winframes, vqslen))
+        for cb in range(codeblocks):
+            for f in frameix:
+                ix = cb*codesperblock + vqs[cb, f]
+                hists[ix, b] += 1.0
+        hists[:,b] /= len(frameix) * codeblocks
+
+    return hists
+
+    
+  
+
+
 #####################################
 
 # Main class
@@ -94,6 +136,8 @@ class AudFtr(object):
     	self.vqcodebook = C["codebook"].transpose( (0,2,1) )
         self.vqmeans = C["recMean"]
         self.vqstds  = C["recStd"]
+        self.hist_win = config["hist_win"]
+        self.hist_hop = config["hist_hop"]
 
     def __call__(self, d, sr):
         """
@@ -106,11 +150,13 @@ class AudFtr(object):
         # Vector quantize in individual frames
         vqs      = sbpca_vqs(pcas, self.vqcodebook, self.vqmeans, self.vqstds)
         # Collapse blocks into histograms
-        #hists    = sbpca_hist(vqs)
 
-        ftrs = vqs
+        hists    = sbpca_hist(vqs, 
+                              int(np.round(self.hist_win / self.sbpca.ac_hop)), 
+                              int(np.round(self.hist_hop / self.sbpca.ac_hop)), 
+                              np.shape(self.vqcodebook)[1])
 
-    	return ftrs
+        return hists
 
 
 ############## Provide a command-line wrapper
@@ -139,10 +185,12 @@ if __name__=="__main__":
     config['SBF_bpo']     = 6
     config['SBF_q']       = 8  # not actually used for SlanPat ERB filters
     config['SBF_order']   = 2  # not actually used for SlanPat ERB filters
-    config['ac_win']      = 0.025  # New option in Python - autoco window len
-    config['ac_hop']      = 0.010  # New option in Python - autoco hop
+    config['twin']        = 0.025  # autoco window len
+    config['thop']        = 0.010  # autoco hop
     # audftr params
     config['vq_file']     = '../CB-sbpca-4x60x1000.mat'
+    config['hist_win']    = 2.0    # histogram pooling window len
+    config['hist_hop']    = 2.0    # histogram hop
 
     # Configure
     ftr_extractor = AudFtr(config)
