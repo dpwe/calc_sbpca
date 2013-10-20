@@ -1,6 +1,10 @@
 #!/usr/bin/env python
+"""
+test_SAcC.py
+test harness for SAcC.py
+"""
 
-from SAcC import *
+import SAcC
 import numpy as np
 config = {}
 
@@ -13,7 +17,8 @@ outfilename = 'sacc8k.txt'
 #outmatname  = 'sacc8k.mat'
 
 # Add config parameters to dictionary
-config['pca_file']    = 'aux/mapping-pca_sr8k_bpo6_sb24_k10.mat' # diff file for py
+# diff file for py
+config['pca_file']    = 'aux/mapping-pca_sr8k_bpo6_sb24_k10.mat' 
 #config['wgt_file']    = 'aux/rats_sr8k_bpo6_sb24_k10_aCH_h100.wgt'
 #config['norms_file']  = 'aux/tr_rats_sr8k_bpo6_sb24_k10.norms'
 config['wgt_file']    = 'aux/sub_qtr_rats_keele_sr8k_bpo6_sb24_k10_ep5_h100.wgt'
@@ -56,7 +61,8 @@ import ctypes
 def write_features_in_sph(filename, data, feature_names="SAcC"):
     num_frames, num_elements = np.shape(data)
     shead = "NIST_1A\n   1024\nfile_type -s11 featurefile\n"
-    shead += "feature_names -s" + str(len(feature_names)) + " " + feature_names + "\n"
+    shead += "feature_names -s" + str(len(feature_names)) 
+    shead += " " + feature_names + "\n"
     shead += "num_elements -i " + str(int(num_elements)) + "\n"
     shead += "num_frames -i " + str(int(num_frames)) + "\n"
     shead += "sample_count -i " + str(int(num_elements * num_frames)) + "\n"
@@ -65,14 +71,14 @@ def write_features_in_sph(filename, data, feature_names="SAcC"):
     f = open(filename, 'wb')
     buf = ctypes.create_string_buffer(shead, 1024)
     f.write(buf)
-    v=ARRAY.array('f')
+    v = ARRAY.array('f')
     v.fromlist(list(data.ravel()))
     v.byteswap()
     v.tofile(f)
     f.close()
 
 # Construct the extractor then extract the features for [filename]
-extractor = SAcC(config)
+extractor = SAcC.SAcC(config)
 features  = extractor(filename)
 
 # Save features in ascii format

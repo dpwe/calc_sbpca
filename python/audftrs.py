@@ -12,8 +12,14 @@ import scipy.signal
 import scipy.io
 import scipy.cluster
 
-import mlp
 import sbpca
+
+
+# for main
+import sys
+# For SRI's wavreading code
+import scipy.io.wavfile as wav
+
 
 ################### from spca_vqs.m
 
@@ -28,50 +34,51 @@ def sbpca_vqs(pcas, vqcodebook, vqmeans, vqstds):
     % 2013-08-03 Dan Ellis dpwe@ee.columbia.edu
     """
 
-    (nRec, nFtr, K) = np.shape(vqcodebook) # 4 x 1000 x 60 
-    (nChs, nDim, nTim) = np.shape(pcas)    # 24 x 10 x T
+    (n_rec, n_ftr, k_dim) = np.shape(vqcodebook) # 4 x 1000 x 60 
+    (n_chs, n_dim, n_tim) = np.shape(pcas)    # 24 x 10 x T
 
     # Reshape pcas into vectors to be quantized
-    grouping = int(nChs / nRec) # better hope it's 24 / 4 = 6
+    grouping = int(n_chs / n_rec) # better hope it's 24 / 4 = 6
 
     # allocate
-    vqs = np.zeros( (nRec, nTim), int)
+    vqs = np.zeros( (n_rec, n_tim), int)
 
-    for i in range(nRec):
+    for i in range(n_rec):
         chs = range(i*grouping, (i+1)*grouping)
         # 60 dim codewords in Matlab file are ordered with the 6 chans as 
         # the fastest rotating dimension, so make sure python array does this
         # too before collapsing 10x6 into rows of 60
-        vqs[i,] = acVQQuantize(pcas[chs,:,:].transpose(1,0,2).reshape(grouping*nDim, nTim).transpose(), 
-                                vqcodebook[i,], vqmeans[i,], vqstds[i,])
+        vqs[i, ] = ac_vq_quantize(pcas[chs, :, :].transpose(1, 0, 2)
+                                .reshape(grouping*n_dim, n_tim).transpose(), 
+                                vqcodebook[i, ], vqmeans[i, ], vqstds[i, ])
 
     return vqs
 
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-def acVQQuantize(D, vqcodes, vqmean, vqstd):
+def ac_vq_quantize(data, vqcodes, vqmean, vqstd):
     """
     % I = acVQQuantize(D,CB)
     %    Return I as the quantization of each data row D according to
     %    the codebook CB.mean, CB.std, CB.codewords.
     % 2012-07-31 Dan Ellis dpwe@ee.columbia.edu
     """
-    (nTim, nD) = np.shape(D)
-    maxdrows = min(10000, nTim)
-    nblocks = int(math.ceil(nTim/maxdrows))
+    (n_tim, n_d) = np.shape(data)
+    maxdrows = min(10000, n_tim)
+    nblocks = int(math.ceil(n_tim/maxdrows))
 
-    I = np.zeros( nTim, int)
+    indx = np.zeros( n_tim, int)
 
-    if nD > 0:
-        for b in range(nblocks):
-            bkix = range(b*maxdrows, min(nTim, (b+1)*maxdrows))
+    if n_d > 0:
+        for blk in range(nblocks):
+            bkix = range(blk*maxdrows, min(n_tim, (blk+1)*maxdrows))
             # Extract rows and apply mean/var normalization
-            Dblock = (D[bkix,] - vqmean) / vqstd
+            d_block = (data[bkix, ] - vqmean) / vqstd
 
             # Quantize
-            I[bkix] = scipy.cluster.vq.vq(Dblock, vqcodes)
+            indx[bkix] = scipy.cluster.vq.vq(d_block, vqcodes)
 
-    return I
+    return indx
 
 
 
@@ -89,25 +96,22 @@ def sbpca_hist(vqs, winframes, hopframes, codesperblock):
     #winframes = int(np.round(params.histwin / params.hoptime))
     #hopframes = int(np.round(params.histhop / params.hoptime))
 
-    base = 0
     codeblocks, vqslen = np.shape(vqs)
 
     nblocks = int(np.round(vqslen/float(hopframes)))
 
-    #[codeblocks, ndim, codesperblock] = size(params.vqcodebook); % 4, (60), 1000
+    #[codeblocks, ndim, codesperblock] = size(params.vqcodebook); 
+    #% 4, (60), 1000
 
-    nbins = codeblocks * codesperblock;
+    hists = np.zeros( (nblocks, codeblocks*codesperblock), float)
 
-    hists = np.zeros( (nbins, nblocks), float)
-
-    for b in range(nblocks):
-        frames = b*hopframes
-        frameix = range(frames, min(frames+winframes, vqslen))
-        for cb in range(codeblocks):
-            for f in frameix:
-                ix = cb*codesperblock + vqs[cb, f]
-                hists[ix, b] += 1.0
-        hists[:,b] /= len(frameix) * codeblocks
+    for blk in range(nblocks):
+        frameix = range(blk*hopframes, min(blk*hopframes+winframes, vqslen))
+        for cbk in range(codeblocks):
+            for frm in frameix:
+                idx = cbk*codesperblock + vqs[cbk, frm]
+                hists[blk, idx] += 1.0
+        hists[blk, :] /= len(frameix) * codeblocks
 
     return hists
 
@@ -124,29 +128,29 @@ class AudFtr(object):
     Compute sbpca-based auditory features
     meaning 4000-dim histograms over 2 sec windows.
     """
-    def __init__(self, config):
+    def __init__(self, conf):
         """ Initialize default values """
-        self.config = config
+        #self.config = config
         # initialize sbpca subsystem
-        self.sbpca = sbpca.sbpca(config)
+        self.sbpca = sbpca.SbPca(conf)
         # set up AudFtr-specific params
         # Read in the VQ codebooks
-    	C = scipy.io.loadmat(config['vq_file'])
+        mat_cb = scipy.io.loadmat(conf['vq_file'])
         # Read the codebook as rects x codewords x dims (4 x 1000 x 60)
-    	self.vqcodebook = C["codebook"].transpose( (0,2,1) )
-        self.vqmeans = C["recMean"]
-        self.vqstds  = C["recStd"]
-        self.hist_win = config["hist_win"]
-        self.hist_hop = config["hist_hop"]
+        self.vqcodebook = mat_cb["codebook"].transpose( (0, 2, 1) )
+        self.vqmeans = mat_cb["recMean"]
+        self.vqstds  = mat_cb["recStd"]
+        self.hist_win = conf["hist_win"]
+        self.hist_hop = conf["hist_hop"]
 
-    def __call__(self, d, sr):
+    def __call__(self, data, srate):
         """
         Run the sbpcahist ftr extractor on the specified waveform/sampling rate
         using the configuration specified on construction
         Return a matrix of <ftrs> x <blocks>
         """
         # Calculate the subband PCA features
-        pcas     = self.sbpca.calc_sbpcas(d, sr)
+        pcas     = self.sbpca.calc_sbpcas(data, srate)
         # Vector quantize in individual frames
         vqs      = sbpca_vqs(pcas, self.vqcodebook, self.vqmeans, self.vqstds)
         # Collapse blocks into histograms
@@ -161,24 +165,20 @@ class AudFtr(object):
 
 ############## Provide a command-line wrapper
 
-if __name__=="__main__":
+def main(argv):
+    """ Main routine to calculate audftr files from command line """
+    if len(argv) != 3:
+        raise NameError( ("Usage: ", argv[0], 
+                          " inputsound.wav outputaudftr.txt") )
 
-    import sys
-    # For SRI's wavreading code
-    import scipy.signal as ss
-    import scipy.io.wavfile as wav
-
-
-    if len(sys.argv) != 3:
-        raise NameError( ("Usage: ", sys.argv[0], " inputsound.wav outputaudftr.txt") )
-
-    inwavfile = sys.argv[1]
-    outptfile = sys.argv[2]
+    inwavfile = argv[1]
+    outptfile = argv[2]
 
     # Setup config
     config = {}
     # sbpca params
-    config['pca_file']    = 'aux/mapping-pca_sr8k_bpo6_sb24_k10.mat' # diff file for py
+    # diff file for py
+    config['pca_file']    = 'aux/mapping-pca_sr8k_bpo6_sb24_k10.mat' 
     config['nchs']        = 24
     config['SBF_sr']      = 8000
     config['SBF_fmin']    = 100
@@ -196,16 +196,21 @@ if __name__=="__main__":
     ftr_extractor = AudFtr(config)
 
     # Read in wav file
-    sr, w = wav.read(inwavfile)
-    d = np.asfarray(w) / 32768.0  # normalize short ints to floats of -1 / 1
+    srate, wavd = wav.read(inwavfile)
+    # normalize short ints to floats of -1 / 1
+    data = np.asfarray(wavd) / 32768.0  
 
     # Apply
-    features = ftr_extractor(d, sr)
+    features = ftr_extractor(data, srate)
 
     # Write the data out
     nfr = np.size(features, axis=0)
-    # Write the data out
     np.savetxt(outptfile, 
                np.c_[np.zeros(nfr), range(nfr), features], 
-               fmt='%.6f', delimiter=' ', newline='\n')
+               fmt='%.4f', delimiter=' ', newline='\n')
+
+# Actually run main
+if __name__ == "__main__":
+    main(sys.argv)
+
 

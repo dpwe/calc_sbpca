@@ -1,24 +1,25 @@
 ########################
+"""
 # mlp.py
 #
 # functions for manipulating MLPs as written by QuickNet
 # for sbpca 
 #
 # 2013-08-15 Dan Ellis dpwe@ee.columbia.edu
-
-import math
+"""
 import numpy as np
 import os.path
 
 ############# from mlp_load.m
 
-# Class to hold MLP definition
-class mlp:
+
+class MLP:
+    """  Class to hold MLP definition """
     # Weights
-    IH = None  # np.zeros( (nhid, nin) )  # Input to Hidden
-    HO = None  # np.zeros( (nout, nhid) ) # Hidden to Output
-    HB = None  # np.zeros( nhid )         # Hidden layer Bias
-    OB = None  # np.zeros( nout )         # Output layer Bias
+    i_h = None  # np.zeros( (nhid, nin) )  # Input to Hidden
+    h_o = None  # np.zeros( (nout, nhid) ) # Hidden to Output
+    hbias = None  # np.zeros( nhid )         # Hidden layer Bias
+    obias = None  # np.zeros( nout )         # Output layer Bias
     ofs = None # np.zeros( nin )          # feature normalization offset
     sca = None # np.ones( nin )           # feature normalization scaling
 
@@ -42,17 +43,17 @@ class mlp:
         # Now read the weights file
         fid = open(wtsfile, 'r')
         # first is IH weights
-        self.IH, hsize = readweigvec(fid, isize)
+        self.i_h, hsize = readweigvec(fid, isize)
         # second is HO weights
-        self.HO, osize = readweigvec(fid, hsize)
+        self.h_o, osize = readweigvec(fid, hsize)
         # then hidden layer bias
-        self.HB, hsize = readvec(fid, hsize, 'biasvec');
+        self.hbias, hsize = readvec(fid, hsize, 'biasvec')
         # then output layer bias
-        self.OB, osize = readvec(fid, osize, 'biasvec');
+        self.obias, osize = readvec(fid, osize, 'biasvec')
         # We're done
         fid.close()
 
-    def apply(self, input):
+    def apply(self, inp):
         """
         output = mlp.apply(input)
         apply the MLP to each row of the input array to create rows of 
@@ -60,13 +61,14 @@ class mlp:
         <input> - input data, <nitems> x <ninput>
         <output> - output results, <nitems> x <noutput>
         """
-        nfrms = np.size(input, axis=0)
+        #nfrms = np.size(inp, axis=0)
         # Normalize with offsets and scales.  Broadcasting does implicit repmat
-        Dn = (input - self.ofs)*self.sca
+        d_n = (inp - self.ofs)*self.sca
         # Apply first layer weights
-        hlo = 1. / (1. + np.exp(-np.dot(Dn, self.IH.transpose()) - self.HB))
+        hlo = 1. / (1. + np.exp(-np.dot(d_n, self.i_h.transpose()) 
+                                 - self.hbias))
         # Second layer
-        ole = np.exp(np.dot(hlo, self.HO.transpose()) + self.OB)
+        ole = np.exp(np.dot(hlo, self.h_o.transpose()) + self.obias)
         # Apply softmax normalization
         return ((ole.transpose()/ole.sum(axis=1))).transpose()
 

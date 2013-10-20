@@ -7,11 +7,12 @@ Python port based on SRI Feature template.
 2013-08-25 Dan Ellis dpwe@ee.columbia.edu
 """
 
-import math
 import numpy as np
 import scipy.signal
 import scipy.io
 import scipy.cluster.vq
+# For SRI's wavreading code
+import scipy.io.wavfile as wav
 
 import mlp
 import sbpca
@@ -44,15 +45,16 @@ def sbpca_viterbi(posteriors, hmm_vp = 0.9):
 
     # Transition matrix - row = from, column = to
     # A matrix of how far apart two bins are
-    ijdiff = np.abs(np.tile(range(npch), (npch,1)).transpose() - range(npch))
+    ijdiff = np.abs(np.tile(range(npch), (npch, 1)).transpose() - range(npch))
     # pitch-to-pitch transitions are laplacian
     # summed in log-domain, per BSL...
     pptxmat = np.log(transfloor + np.exp(np.exp(-np.abs(ijdiff)/wdyn)))
     # normalize rows of pitch-to-pitch transitions to be true probabilities
-    pptxmat /= pptxmat.sum(axis=1)[:,np.newaxis]
+    pptxmat /= pptxmat.sum(axis=1)[:, np.newaxis]
     # transmat wraps unvoiced state around pitch-to-pitch
     transmat = np.vstack( (np.r_[(1-uvtrp), uvtrp/npch*np.ones(npch)], 
-                           np.hstack((vutrp*np.ones( (npch,1) ), (1-vutrp)*pptxmat))))
+                           np.hstack((vutrp*np.ones( (npch, 1) ), 
+                                      (1-vutrp)*pptxmat))))
 
     # penalize unvoiced posterior & renormalize
     sposts[0,] = hmm_vp * sposts[0,]
@@ -63,16 +65,15 @@ def sbpca_viterbi(posteriors, hmm_vp = 0.9):
     return viterbi_path(sposts, priors, transmat)
 
 #%%%%%%%%%%%%%%%%%%%%%%%
-def standardize(A):
+def standardize(array):
     """
-    N = standardize(A)
+    N = standardize(array)
     % Make each column of an array have a zero mean and unit sd
     % was "normalise" by kslee@ee.columbia.edu (not to confuse with kpm's normalise)
     """
-    ndim = np.size(A, axis=0)
-    s = A.std(axis=0)
+    stddev = array.std(axis=0)
     # normalize each column
-    return (A - A.mean(axis=0))/(s+(s==0))
+    return (array - array.mean(axis=0))/(stddev+(stddev==0))
     
 
 ################## from viterbi_path.m
@@ -88,11 +89,11 @@ def viterbi_path(posteriors, priors, transmat):
     (nbins, nframes) = np.shape(posteriors)
 
     # Array to hold traceback
-    prev = np.zeros( (nbins, nframes) , int);
+    prev = np.zeros( (nbins, nframes) , int)
 
     # <pstate> holds normalized  probability-to-date of landing in this
     # state along best path 
-    pstate = priors*posteriors[:,0]
+    pstate = priors*posteriors[:, 0]
     # normalize probs of best path to each state, to avoid underflow
     pstate = pstate/np.sum(pstate)
 
@@ -106,20 +107,21 @@ def viterbi_path(posteriors, priors, transmat):
         pstate = np.log(pstate)
         for i in range(1, nframes):
             probs = (logtransmat 
-                     + np.tile(np.log(posteriors[:,i]),(nbins,1)).transpose() 
-                     + np.tile(pstate, (nbins,1)))
+                     + np.tile(np.log(posteriors[:, i]),(nbins, 1)).transpose() 
+                     + np.tile(pstate, (nbins, 1)))
             pstate = np.max(probs, axis=1)
-            prev[:,i] = np.argmax(probs, axis=1)
+            prev[:, i] = np.argmax(probs, axis=1)
             # Renormalize to keep probabilities in a sensible range
             pstate = pstate - np.mean(pstate)
 
     else:
         # linear likelihood domain
         for i in range(1, nframes):
-            # Find most likely combination of previous prob-to-path, and transition
-            probs = transmat.transpose() * np.outer(posteriors[:,i], pstate)
+            # Find most likely combination of previous prob-to-path, 
+            # and transition
+            probs = transmat.transpose() * np.outer(posteriors[:, i], pstate)
             pstate = np.max(probs, axis=1)
-            prev[:,i] = np.argmax(probs, axis=1)
+            prev[:, i] = np.argmax(probs, axis=1)
             # Renormalize to keep probabilities in a sensible range
             pstate = pstate/sum(pstate)
 
@@ -128,13 +130,13 @@ def viterbi_path(posteriors, priors, transmat):
     # best final state
     path[nframes-1] = np.argmax(pstate)
     # .. and all its predecessors
-    for i in range(nframes,1,-1):
-        path[i-2] = prev[path[i-1], i-1]
+    for pth in range(nframes, 1, -1):
+        path[pth-2] = prev[path[pth-1], pth-1]
     return path
 
 #####################################
 
-def dithering(x):
+def dithering(data):
     """
     % y = dithering(x)
     %    Add low-level noise to x to avoid digital zeros
@@ -142,17 +144,13 @@ def dithering(x):
     # Ensure consistent random sequence (in dither()
     np.random.seed(0)
     # Generate the dither sequence
-    xlen = len(x)
+    xlen = len(data)
     dither = np.random.rand(xlen) + np.random.rand(xlen) - 1
     # add it on 120 dB below the signal
-    spow = np.std(x)
+    spow = np.std(data)
     #print "dithering off"
     #return x
-    return x + 1e-6 * spow * dither
-
-# For SRI's wavreading code
-import scipy.signal as ss
-import scipy.io.wavfile as wav
+    return data + 1e-6 * spow * dither
 
 # Main class
 
@@ -161,14 +159,14 @@ class SAcC(object):
     """
     def __init__(self, config):
         """ Initialize default values """
-        self.config = config
+        #self.config = config
         # initialize the sbpca subsystem
-        self.sbpca = sbpca.sbpca(config)
+        self.sbpca = sbpca.SbPca(config)
         # initialize the mlp subsytem
-    	self.net = mlp.mlp(config['wgt_file'], config['norms_file'])
+        self.net = mlp.MLP(config['wgt_file'], config['norms_file'])
         # parameters specific to SAcC part
-    	self.ptchtab = np.r_[0, np.loadtxt(config['pcf_file'])]
-    	self.hmm_vp = config['hmm_vp']
+        self.ptchtab = np.r_[0, np.loadtxt(config['pcf_file'])]
+        self.hmm_vp = config['hmm_vp']
         self.n_s = 10.0
         self.write_rownum = False
         self.write_time = False
@@ -197,21 +195,24 @@ class SAcC(object):
 
     def __call__(self, filename):
         """ This is called for each file """
-        sr, w = wav.read(filename)  # remove dependency on libsndfile. Only accept wav, use Sox
-        d = np.asfarray(w) / 32768.0  # normalize short ints to floats of -1 / 1
-        if sr == 16000 and self.sbpca.sr == 8000:
-            # slight trim to ss.decimate to make its phase align to matlab's resample
-            d = ss.decimate(np.r_[d[1:],0], 2, ftype='fir')
+        # remove dependency on libsndfile. Only accept wav, use Sox
+        srate, wdat = wav.read(filename)  
+        # normalize short ints to floats of -1 / 1
+        data = np.asfarray(wdat) / 32768.0  
+        if srate == 16000 and self.sbpca.srate == 8000:
+            # slight trim to ss.decimate to make its phase align 
+            # to matlab's resample
+            data = scipy.signal.decimate(np.r_[data[1:], 0], 2, ftype='fir')
             delay = 7
-            d = np.r_[d[delay:],np.zeros(delay)]
-            sr = sr/2
-        assert sr == self.sbpca.sr
+            data = np.r_[data[delay:], np.zeros(delay)]
+            srate = srate/2
+        assert srate == self.sbpca.srate
         # Actually run it
-        ftrs =  self.SAcC(d, sr)
+        ftrs =  self.sacc(data, srate)
         # Return the features
         return ftrs
 
-    def SAcC(self, d, sr):
+    def sacc(self, data, srate):
         """
         Run the SAcC pitch tracker on the specified waveform/sampling rate
         using the configuration specified on construction
@@ -219,11 +220,11 @@ class SAcC(object):
         """
         # Pad out d with zeros so get right number of winsamps frames
         # (and add unique dithering noise over whole signal)
-        X = dithering(np.r_[d, np.zeros(self.sbpca.maxlags)])
+        xdat = dithering(np.r_[data, np.zeros(self.sbpca.maxlags)])
         # Pre-allocate whole activations matrix
-        nframes = self.sbpca.nframes(len(d))
-#        acts = np.zeros( (len(self.net.OB), nframes) )
-        acts = np.zeros( (len(self.net.OB), 0) )
+        nframes = self.sbpca.nframes(len(data))
+#        acts = np.zeros( (len(self.net.obias), nframes) )
+        acts = np.zeros( (len(self.net.obias), 0) )
 #        (nChs, nDim, nLag) = np.shape(self.sbpca.mapping)
 #        if self.output_pcas:
 #            ftrs = np.zeros( (nChs, nDim, nframes) )
@@ -235,7 +236,7 @@ class SAcC(object):
         framesamps = self.sbpca.framesamps
         # How many frames to process each time in loop
         #blockframes = 100
-        blockframes = max(1, int(np.ceil(self.n_s * (sr/framesamps))))
+        blockframes = max(1, int(np.ceil(self.n_s * (srate/framesamps))))
         blocksamps = blockframes * framesamps
         nblocks = int(np.ceil(float(nframes) / float(blockframes)))
 
@@ -248,26 +249,30 @@ class SAcC(object):
             # Figure next block of samples, including pre- and post-padding
             actualprepadframes = min(prepadframes, block*blockframes)
             blockbasesamp = block*blocksamps
-            blocklastsamp = min(len(X), blockbasesamp + blocksamps 
+            blocklastsamp = min(len(xdat), blockbasesamp + blocksamps 
                                 +self.sbpca.padsamps)
-            Xpts = X[(blockbasesamp - actualprepadframes*framesamps):blocklastsamp]
+            xpts = xdat[(blockbasesamp - actualprepadframes*framesamps)
+                        :blocklastsamp]
             # Run the sbpca part
-            acs = self.sbpca.calc_autocos(Xpts, sr, isfirst)
-            (nsb,nlg,nfr) = np.shape(acs) # 24, 200, 501
+            acs = self.sbpca.calc_autocos(xpts, srate, isfirst)
+            (nsb, nlg, nfr) = np.shape(acs) # 24, 200, 501
             # Now we know how many frames this block...
             nactfr = nfr - actualprepadframes
             ftr = np.zeros( (nactfr, 0), float)
             frixs = range(donefr, donefr+nactfr)
             donefr += nactfr
             if self.write_rownum:  
-                ftr = np.c_[ftr, np.array(frixs,ndmin=2).transpose()]
+                ftr = np.c_[ftr, np.array(frixs, ndmin=2).transpose()]
             if self.write_time:
-                ftr = np.c_[ftr, self.sbpca.ac_hop * np.array(frixs,ndmin=2).transpose()]
-            blockix = range(block*blockframes, block*blockframes+nactfr)
+                ftr = np.c_[ftr, self.sbpca.ac_hop 
+                                  * np.array(frixs, ndmin=2).transpose()]
+            #blockix = range(block*blockframes, block*blockframes+nactfr)
             if self.write_sbac:
-                ftr = np.c_[ftr, np.reshape(ftr[:,:,actualprepadframes:], (nsb*nlg, nactfr)).transpose()]
-            pcas = sbpca.sbpca_pca(acs[:,:,actualprepadframes:], self.sbpca.mapping)
-            (nsb,npc,nactfr) = np.shape(pcas)
+                ftr = np.c_[ftr, np.reshape(ftr[:, :, actualprepadframes:], 
+                                            (nsb*nlg, nactfr)).transpose()]
+            pcas = sbpca.sbpca_pca(acs[:, :, actualprepadframes:], 
+                                   self.sbpca.mapping)
+            (nsb, npc, nactfr) = np.shape(pcas)
             #pcasr = np.reshape(pcas, (nsb*npc, nactfr)).transpose()
             # Required order of each frame is pcdim slowest, subband fastest!
             pcasr = pcas.transpose().reshape((nactfr, nsb*npc))
@@ -287,7 +292,7 @@ class SAcC(object):
 
         if self.write_pitch:
             # Run viterbi decode on all activations stitched together
-            pth      = sbpca_viterbi(acts, self.hmm_vp)
+            pth = sbpca_viterbi(acts, self.hmm_vp)
             # Convert pitch bin indices to frequencies in Hz by table lookup
             ftrs = np.c_[ftrs, self.ptchtab[pth]]
             
@@ -300,20 +305,20 @@ class SAcC(object):
 
 ############## Provide a command-line wrapper
 
-if __name__=="__main__":
+def main(argv):
+    """ Main routine to calculate SAcC from wav file """
+    if len(argv) != 3:
+        raise NameError( ("Usage: ", argv[0], 
+                          " inputsound.wav outputpitchtrack.txt") )
 
-    import sys
-
-    if len(sys.argv) != 3:
-        raise NameError( ("Usage: ", sys.argv[0], " inputsound.wav outputpitchtrack.txt") )
-
-    inwavfile = sys.argv[1]
-    outptfile = sys.argv[2]
+    inwavfile = argv[1]
+    outptfile = argv[2]
 
     # Setup config
     config = {}
     # sbpca params
-    config['pca_file']    = 'aux/mapping-pca_sr8k_bpo6_sb24_k10.mat' # diff file for py
+    # diff file for py
+    config['pca_file']    = 'aux/mapping-pca_sr8k_bpo6_sb24_k10.mat' 
     #config['kdim'] = 10 # inferred from mapping file
     config['nchs']        = 24
     config['n_s']         = 5.0  # secs per process block, controls blockframes
@@ -324,7 +329,8 @@ if __name__=="__main__":
     config['SBF_order']   = 2  # not actually used for SlanPat ERB filters
     config['SBF_ftype']   = 2  # ignored - python is always SlanPat ERB
     config['twin']        = 0.025  # autoco window len
-    config['thop']        = 0.010  # autoco hop
+    thop = 0.010
+    config['thop']        = thop  # autoco hop
     # mlp params
     #config['wgt_file']    = 'aux/rats_sr8k_bpo6_sb24_k10_aCH_h100.wgt'
     #config['norms_file']  = 'aux/tr_rats_sr8k_bpo6_sb24_k10.norms'
@@ -337,7 +343,7 @@ if __name__=="__main__":
     config['hmm_vp']      = 0.9 # interpretation changed c/w Matlab
     # output options
     config['write_rownum'] = 0 # prepend row number
-    config['write_time']  = 0  # prepend time in seconds to output
+    config['write_time']  = 1  # prepend time in seconds to output
     config['write_sbac'] = 0   # output raw autocorrelations (big - 24 x 200)
     config['write_sbpca'] = 0  # output subband pcas (24 x 10)
     config['write_posteriors'] = 0 # output raw pitch posteriors (68)
@@ -358,19 +364,14 @@ if __name__=="__main__":
     sacc_extractor = SAcC(config)
 
     # Apply
-    # d,sr = wavread(inwavfile)
-    # pth, pvx = SAcC(d, sr)
     features = sacc_extractor(inwavfile)
 
     # Write the data out
-    nfr = np.size(features, axis=0)
-    # Write the data out
-#    np.savetxt(outptfile, 
-#               np.c_[np.zeros(nfr), range(nfr), features], 
-#               fmt='%.6f', delimiter=' ', newline='\n')
-    utt = 0
-    with open(outptfile, 'w') as opf:
-        for i in range(nfr):
-            #opf.write('%d %d %f %f\n' % (utt, i, features[i,0], features[i,1]))
-            opf.write('%f %f\n' % (features[i,0], features[i,1]))
+    np.savetxt(outptfile, features, fmt='%.3f', delimiter=' ', newline='\n')
+
+
+# Run the main function if called from the command line
+if __name__ == "__main__":
+    import sys
+    main(sys.argv)
 
