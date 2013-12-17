@@ -168,6 +168,7 @@ class SAcC(object):
         self.ptchtab = np.r_[0, np.loadtxt(config['pcf_file'])]
         self.hmm_vp = config['hmm_vp']
         self.n_s = 10.0
+        self.start_utt = 0
         self.write_rownum = False
         self.write_time = False
         self.write_sbac = False
@@ -177,6 +178,8 @@ class SAcC(object):
         self.write_pvx = True
         if 'n_s' in config:
             self.n_s = config['n_s']
+        if 'start_utt' in config:
+            self.start_utt = config['start_utt']
         if 'write_rownum' in config:
             self.write_rownum = config['write_rownum']
         if 'write_time' in config:
@@ -262,7 +265,10 @@ class SAcC(object):
             frixs = range(donefr, donefr+nactfr)
             donefr += nactfr
             if self.write_rownum:  
-                ftr = np.c_[ftr, np.array(frixs, ndmin=2).transpose()]
+                #ftr = np.c_[ftr, np.array(frixs, ndmin=2).transpose()]
+                ftr = np.c_[ftr, 
+                            self.start_utt * np.ones( (nactfr, 1), float), 
+                            np.array(frixs, ndmin=2).transpose()]
             if self.write_time:
                 ftr = np.c_[ftr, self.sbpca.ac_hop 
                                   * np.array(frixs, ndmin=2).transpose()]
@@ -350,7 +356,7 @@ def main(argv):
     config['write_pitch'] = 1  # output the actual pitch value in Hz (1)
     config['write_pvx'] = 1    # output just 1-posterior(unvoiced) (1)
     # Tricks with segmenting utterances not implemented in Python
-    #config['start_utt'] = 0    # what utterance number to start at
+    config['start_utt'] = 0    # what utterance number to start at
     #config['incr_utt'] = 0     # increment the utterance each seg (?)
     #config['segs_per_utt'] = 1 # break each utterance into this many segs
     config['verbose'] = 0
