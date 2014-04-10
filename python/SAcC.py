@@ -136,10 +136,12 @@ def viterbi_path(posteriors, priors, transmat):
 
 #####################################
 
-def dithering(data):
+def dithering(data, noiselevel=1e-3):
     """
-    % y = dithering(x)
+    % y = dithering(x, noiselevel)
     %    Add low-level noise to x to avoid digital zeros
+    %    noiselevel is scaling factor below SD of signal at which 
+    %    noise is added (default 1e-3).
     """
     # Ensure consistent random sequence (in dither()
     np.random.seed(0)
@@ -150,7 +152,61 @@ def dithering(data):
     spow = np.std(data)
     #print "dithering off"
     #return x
-    return data + 1e-6 * spow * dither
+    #print "dithering at 1e-3"
+    #return data + 1e-6 * spow * dither
+    return data + noiselevel * spow * dither
+
+# For SRI's wavreading code
+import scipy.io.wavfile as wav
+from scikits.audiolab import Sndfile
+# For command line
+import os
+import sys
+
+def readsph(filename):
+    """ read in audio data from a sphere file.  Return d, sr """
+    f = Sndfile(filename, 'r')
+    data = f.read_frames(f.nframes, dtype=np.float32)
+    sr = f.samplerate
+    return data, sr
+
+def readwav(filename):
+    """ read in audio data from a wav file.  Return d, sr """
+    # Read in wav file
+    sr, wavd = wav.read(filename)
+    # normalize short ints to floats of -1 / 1
+    data = np.asfarray(wavd) / 32768.0  
+    return data, sr
+
+def audioread(filename, targetsr=None):
+    """
+    Read a soundfile of either WAV or SPH, based on filename
+    returns d, sr
+    """
+    fileName, fileExtension = os.path.splitext(filename)
+    if fileExtension == ".wav":
+        data, sr = readwav(filename)
+    elif fileExtension == ".sph":
+        data, sr = readsph(filename)
+    else:
+        raise NameError( ("Cannot determine type of infile " +
+                          filename) )
+    # Maybe fix sample rate
+    #if srate == 16000 and self.sbpca.srate == 8000:
+    if targetsr != None and sr != targetsr:
+        # Right now, only downsample by integer numbers
+        decimfact = int(np.round(sr/targetsr))
+        data = scipy.signal.decimate(np.r_[data[1:], 0], 
+                                     decimfact, ftype='fir')
+        # slight trim to ss.decimate to make its phase align 
+        # to matlab's resample 
+        # for case of resampling 16 kHz down to 8 kHz
+        delay = 7
+        data = np.r_[data[delay:], np.zeros(delay)]
+        sr = sr/decimfact
+
+    return data, sr
+
 
 # Main class
 
@@ -176,6 +232,7 @@ class SAcC(object):
         self.write_posteriors = False
         self.write_pitch = True
         self.write_pvx = True
+        self.dither_level = 1e-3
         if 'n_s' in config:
             self.n_s = config['n_s']
         if 'start_utt' in config:
@@ -194,21 +251,15 @@ class SAcC(object):
             self.write_pitch = config['write_pitch']
         if 'write_pvx' in config:
             self.write_pvx = config['write_pvx']
+        # added 2014-04-10
+        if 'dither_level' in config:
+            self.dither_level = config['dither_level']
 
 
     def __call__(self, filename):
         """ This is called for each file """
         # remove dependency on libsndfile. Only accept wav, use Sox
-        srate, wdat = wav.read(filename)  
-        # normalize short ints to floats of -1 / 1
-        data = np.asfarray(wdat) / 32768.0  
-        if srate == 16000 and self.sbpca.srate == 8000:
-            # slight trim to ss.decimate to make its phase align 
-            # to matlab's resample
-            data = scipy.signal.decimate(np.r_[data[1:], 0], 2, ftype='fir')
-            delay = 7
-            data = np.r_[data[delay:], np.zeros(delay)]
-            srate = srate/2
+        data, srate = audioread(filename, targetsr=self.sbpca.srate)
         assert srate == self.sbpca.srate
         # Actually run it
         ftrs =  self.sacc(data, srate)
@@ -223,7 +274,8 @@ class SAcC(object):
         """
         # Pad out d with zeros so get right number of winsamps frames
         # (and add unique dithering noise over whole signal)
-        xdat = dithering(np.r_[data, np.zeros(self.sbpca.maxlags)])
+        xdat = dithering(np.r_[data, np.zeros(self.sbpca.maxlags)],
+                         self.dither_level)
         # Pre-allocate whole activations matrix
         nframes = self.sbpca.nframes(len(data))
 #        acts = np.zeros( (len(self.net.obias), nframes) )
@@ -365,6 +417,7 @@ def main(argv):
     #config['sph_out'] = 0
     #config['mat_out'] = 0
     #config['txt_out'] = 1
+    config['dither_level'] = 1e-3
 
     # Configure
     sacc_extractor = SAcC(config)

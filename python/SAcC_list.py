@@ -51,6 +51,8 @@ config = {
     'sph_out': 0,
     'mat_out': 0,
     'txt_out': 1,
+    # added 2014-04-10 after problems with Babel
+    'dither_level': 1e-3, # noise is -60dB re: signal (was -120 dB, 1e-6)
     'verbose': 0
 }
 
