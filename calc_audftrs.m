@@ -17,7 +17,11 @@ params.vqstds = C.recStd;
 VQs = sbpca_vqs(pcas, params);
 
 % histogram - <nRect x cbSize> x <nblock>
+params.histwin = 2.0; % histograms over 2 sec wins
+params.histhop = 2.0; % windows every 2 sec in file
+
 hists = sbpca_hist(VQs, params);
+
 % 2013-08-11 Up to here verified as almost identical to calcSBPCA
 % (just off by one or two frames on histogram aggregation windows)
 % but I think these ones are more on-target (ignoring the 25 ms

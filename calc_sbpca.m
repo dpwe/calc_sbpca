@@ -9,15 +9,6 @@ params.wintime = 0.025;
 params.hoptime = 0.010;
 params.sr = sr;
 
-params.histwin = 2.0;
-params.histhop = 2.0;
-
-% load the data files
-% PCA basis functions
-mapfile = 'pca_sr8k_bpo6_sb24_k10.mat';
-M = load(mapfile);
-params.mapping = M.mapping;
-
 % Setup the filterbank
 %bpo = 6; nchs = 24;
 %fmin = 100; fb_q = 8; ord = 2; ftype = 2;
@@ -33,6 +24,11 @@ subbands = sbpca_subbands(d, sr, params);
 
 % autocorrelate - <nlag> x <nch> x <nframe>
 autocos = sbpca_autoco(subbands, params);
+
+% load the PCA basis functions
+mapfile = 'pca_sr8k_bpo6_sb24_k10.mat';
+M = load(mapfile);
+params.mapping = M.mapping;
 
 % principal components - <nPC> x <nch> x <nframe>
 pcas = sbpca_pca(autocos, params);
