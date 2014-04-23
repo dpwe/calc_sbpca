@@ -4,7 +4,12 @@
 
 # Compile rules for C-extension version of aucotorr
 
-CFLAGS=-I/opt/local/Library/Frameworks/Python.framework/Versions/2.7/include/python2.7 -I/opt/local/Library/Frameworks/Python.framework/Versions/2.7/lib/python2.7/site-packages/numpy/core/include/numpy
+# darwinports
+#PYDIR=/opt/local/Library
+# homebrew
+PYDIR=/usr/local/Cellar/python/2.7.6
+
+CFLAGS=-I${PYDIR}/Frameworks/Python.framework/Versions/2.7/include/python2.7 -I${PYDIR}/Frameworks/Python.framework/Versions/2.7/lib/python2.7/site-packages/numpy/core/include/numpy
 
 
 # ---- Link --------------------------- 
