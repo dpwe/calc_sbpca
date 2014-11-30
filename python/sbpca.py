@@ -44,7 +44,7 @@ class FbankDef(object):
         self.a_i = None
         self.b_i = None
 
-def sbpca_filterbank(srate=8000.0, fmin=100.0, bpo=6.0, bands=24, q_f=8.0, order=2):
+def filterbank(srate=8000.0, fmin=100.0, bpo=6.0, bands=24, q_f=8.0, order=2):
     """
     Define the filterbank for sbpca.
     Return a structure with fields a, b, t, bw, cf
@@ -172,7 +172,7 @@ def make_erb_filter(fs, cf, cq=0):
 
 ############### from sbpca_subbands.m
 
-def sbpca_subbands(data, srate, fbank, discard=0, isfirst=0):
+def subbands(data, srate, fbank, discard=0, isfirst=0):
     """
     % subbands, freqs = sbpca_subbands(d,sr,fbank,discard)
     %   Filter into subbands for sbpca
@@ -233,7 +233,7 @@ def sbpca_subbands(data, srate, fbank, discard=0, isfirst=0):
 
 ############## from sbpca_autoco.m
 
-def sbpca_autoco(subbands, srate=8000, win=0.025, hop=0.010, maxlags=None):
+def autoco(subbands, srate=8000, win=0.025, hop=0.010, maxlags=None):
     """
     % [autocos,energy] = sbpca_autocos(subbands,sr)
     %   Calculate autocorrelations over subbands for sbpca.
@@ -245,7 +245,7 @@ def sbpca_autoco(subbands, srate=8000, win=0.025, hop=0.010, maxlags=None):
         maxlags = int(np.round(win*srate))
 
     # multichannel autocorrelation
-    autocos = autocorrelogram(subbands, srate, maxlags, hop, win)
+    autocos, acf_energy = autocorrelogram(subbands, srate, maxlags, hop, win)
 
     #autocos = acf
     #print "no normalization"
@@ -253,7 +253,7 @@ def sbpca_autoco(subbands, srate=8000, win=0.025, hop=0.010, maxlags=None):
     # Make it lags x subbands x timeframes
     #autocos = permute(autocos, [2 1 3])
 
-    return autocos #, acf_engy
+    return autocos, acf_energy
 
 ############## from autocorrelogram.m
 
@@ -296,6 +296,7 @@ def autocorrelogram(data, srate, maxlags=None, hop=0.010, win=0.025):
     #ac = np.zeros( (nchs, maxlags, nfrms) )
     #sc = np.zeros( (nchs, maxlags, nfrms) )
     autocos = np.zeros( (nchs, maxlags, nfrms) )
+    etot = np.zeros( (nchs, nfrms) )
 
     for chan in range(nchs):
         xdat = data[chan,]
@@ -305,10 +306,12 @@ def autocorrelogram(data, srate, maxlags=None, hop=0.010, win=0.025):
                                                    nfrms, maxlags, win_len).T
         else:
             # This is the pure-python version, about 20% slower.
-            autocos[chan,] = my_autocorr(xdat, frm_len, nfrms, maxlags, win_len)
+            autocos[chan,], etotchan = my_autocorr(
+                xdat, frm_len, nfrms, maxlags, win_len)
+            etot[chan, ] = etotchan[chan, 0, ]
 
     #autocos = acf / (acf_engy + (acf_engy == 0))
-    return autocos
+    return autocos, etot
 
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -352,10 +355,10 @@ def my_autocorr(sig, frm_len, nfrms, maxlags, win_len):
     sums[sums < 0] = 0 # per Mitch 2013-09-19
     etot = np.sqrt(sums[win_len-1, :]*sums[win_len-1:-win_len, :])
 
-    return cor/(etot + (etot==0))
+    return cor/(etot + (etot==0)), etot
 
 ############### from sbpca_pca.m
-def sbpca_pca(autocos, mapping):
+def pca(autocos, mapping):
     """
     % pcas = sbpca_pca(autocos, params)
     %    Convert subband autocorrelations to principal components
@@ -391,10 +394,10 @@ class SbPca(object):
         """ Initialize default values """
         self.config = config
         self.srate = config['SBF_sr']
-        self.fbank = sbpca_filterbank(self.srate, config['SBF_fmin'],
-                                      config['SBF_bpo'], config['nchs'],
-                                      config['SBF_q'],
-                                      config['SBF_order'])
+        self.fbank = filterbank(self.srate, config['SBF_fmin'],
+                                config['SBF_bpo'], config['nchs'],
+                                config['SBF_q'],
+                                config['SBF_order'])
         matd = scipy.io.loadmat(config['pca_file'])
         self.mapping = matd["mapping"]
         self.maxlags = np.size(self.mapping, axis=2)
@@ -426,8 +429,8 @@ class SbPca(object):
             npad = self.padsamps
         else:
             npad = 0
-        sbs, frqs = sbpca_subbands(data, srate, self.fbank, npad, isfirst)
-        acs = sbpca_autoco(sbs, srate, self.ac_win, self.ac_hop,
+        sbs, frqs = subbands(data, srate, self.fbank, npad, isfirst)
+        acs, etot = autoco(sbs, srate, self.ac_win, self.ac_hop,
                            self.maxlags)
         return acs
 
@@ -439,5 +442,5 @@ class SbPca(object):
         If "isfirst" is set, clear the filter state and warm up again
         """
         acs = self.calc_autocos(data, srate, isfirst)
-        pcas     = sbpca_pca(acs, self.mapping)
+        pcas     = pca(acs, self.mapping)
         return pcas

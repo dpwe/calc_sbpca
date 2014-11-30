@@ -7,12 +7,12 @@
 # darwinports
 #PYDIR=/opt/local/Library
 # homebrew
-PYDIR=/usr/local/Cellar/python/2.7.6
+PYDIR=/usr/local/Cellar/python/2.7.8_1
 
 CFLAGS=-I${PYDIR}/Frameworks/Python.framework/Versions/2.7/include/python2.7 -I${PYDIR}/Frameworks/Python.framework/Versions/2.7/lib/python2.7/site-packages/numpy/core/include/numpy
 
 
-# ---- Link --------------------------- 
+# ---- Link ---------------------------
 _autocorr_py.so: autocorr_py.o
 	gcc -bundle -flat_namespace -undefined suppress -o _autocorr_py.so autocorr_py.o
 
@@ -32,5 +32,3 @@ test_sacc:
 test_audftr:
 	python2.7 audftrs.py input8k.wav tmp.txt
 	diff tmp.txt output-input8k-audftr-ref.txt
-
-

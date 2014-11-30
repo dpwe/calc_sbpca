@@ -18,13 +18,13 @@ import mlp
 import sbpca
 
 ################## from sbpca_viterbi.m
-def sbpca_viterbi(posteriors, hmm_vp = 0.9):
+def viterbi(posteriors, hmm_vp = 0.9):
     """
     % path = sbpca_viterbi(posteriors, hmm_vp)
     %    Find the best (viterbi) path through a set of pitch class
     %    posteriors, for the SAcC pitch tracker.
     %    <posteriors> is <nbins> x <nframes>
-    %    <hmm_vp> is 
+    %    <hmm_vp> is
     % 2013-08-23 Dan Ellis dpwe@ee.columbia.edu sbpca refactor cleanup
     """
 
@@ -52,8 +52,8 @@ def sbpca_viterbi(posteriors, hmm_vp = 0.9):
     # normalize rows of pitch-to-pitch transitions to be true probabilities
     pptxmat /= pptxmat.sum(axis=1)[:, np.newaxis]
     # transmat wraps unvoiced state around pitch-to-pitch
-    transmat = np.vstack( (np.r_[(1-uvtrp), uvtrp/npch*np.ones(npch)], 
-                           np.hstack((vutrp*np.ones( (npch, 1) ), 
+    transmat = np.vstack( (np.r_[(1-uvtrp), uvtrp/npch*np.ones(npch)],
+                           np.hstack((vutrp*np.ones( (npch, 1) ),
                                       (1-vutrp)*pptxmat))))
 
     # penalize unvoiced posterior & renormalize
@@ -74,7 +74,7 @@ def standardize(array):
     stddev = array.std(axis=0)
     # normalize each column
     return (array - array.mean(axis=0))/(stddev+(stddev==0))
-    
+
 
 ################## from viterbi_path.m
 def viterbi_path(posteriors, priors, transmat):
@@ -82,7 +82,7 @@ def viterbi_path(posteriors, priors, transmat):
     % path = viterbi_path(posteriors, priors, transmat)
     %     Find best path through spectrogram-like posteriors (one
     %     column per time frame).  Transmat is row from, column to.
-    %     Linear probabilities (not log). 
+    %     Linear probabilities (not log).
     %     Return sequence of state indices.
     % 2013-08-23 Dan Ellis dpwe@ee.columbia.edu sbpca refactor cleanup
     """
@@ -92,7 +92,7 @@ def viterbi_path(posteriors, priors, transmat):
     prev = np.zeros( (nbins, nframes) , int)
 
     # <pstate> holds normalized  probability-to-date of landing in this
-    # state along best path 
+    # state along best path
     pstate = priors*posteriors[:, 0]
     # normalize probs of best path to each state, to avoid underflow
     pstate = pstate/np.sum(pstate)
@@ -106,8 +106,8 @@ def viterbi_path(posteriors, priors, transmat):
         logtransmat = np.log(transmat.transpose())
         pstate = np.log(pstate)
         for i in range(1, nframes):
-            probs = (logtransmat 
-                     + np.tile(np.log(posteriors[:, i]),(nbins, 1)).transpose() 
+            probs = (logtransmat
+                     + np.tile(np.log(posteriors[:, i]),(nbins, 1)).transpose()
                      + np.tile(pstate, (nbins, 1)))
             pstate = np.max(probs, axis=1)
             prev[:, i] = np.argmax(probs, axis=1)
@@ -117,7 +117,7 @@ def viterbi_path(posteriors, priors, transmat):
     else:
         # linear likelihood domain
         for i in range(1, nframes):
-            # Find most likely combination of previous prob-to-path, 
+            # Find most likely combination of previous prob-to-path,
             # and transition
             probs = transmat.transpose() * np.outer(posteriors[:, i], pstate)
             pstate = np.max(probs, axis=1)
@@ -140,7 +140,7 @@ def dithering(data, noiselevel=1e-3):
     """
     % y = dithering(x, noiselevel)
     %    Add low-level noise to x to avoid digital zeros
-    %    noiselevel is scaling factor below SD of signal at which 
+    %    noiselevel is scaling factor below SD of signal at which
     %    noise is added (default 1e-3).
     """
     # Ensure consistent random sequence (in dither()
@@ -175,7 +175,7 @@ def readwav(filename):
     # Read in wav file
     sr, wavd = wav.read(filename)
     # normalize short ints to floats of -1 / 1
-    data = np.asfarray(wavd) / 32768.0  
+    data = np.asfarray(wavd) / 32768.0
     return data, sr
 
 def audioread(filename, targetsr=None):
@@ -196,10 +196,10 @@ def audioread(filename, targetsr=None):
     if targetsr != None and sr != targetsr:
         # Right now, only downsample by integer numbers
         decimfact = int(np.round(sr/targetsr))
-        data = scipy.signal.decimate(np.r_[data[1:], 0], 
+        data = scipy.signal.decimate(np.r_[data[1:], 0],
                                      decimfact, ftype='fir')
-        # slight trim to ss.decimate to make its phase align 
-        # to matlab's resample 
+        # slight trim to ss.decimate to make its phase align
+        # to matlab's resample
         # for case of resampling 16 kHz down to 8 kHz
         delay = 7
         data = np.r_[data[delay:], np.zeros(delay)]
@@ -304,7 +304,7 @@ class SAcC(object):
             # Figure next block of samples, including pre- and post-padding
             actualprepadframes = min(prepadframes, block*blockframes)
             blockbasesamp = block*blocksamps
-            blocklastsamp = min(len(xdat), blockbasesamp + blocksamps 
+            blocklastsamp = min(len(xdat), blockbasesamp + blocksamps
                                 +self.sbpca.padsamps)
             xpts = xdat[(blockbasesamp - actualprepadframes*framesamps)
                         :blocklastsamp]
@@ -316,19 +316,19 @@ class SAcC(object):
             ftr = np.zeros( (nactfr, 0), float)
             frixs = range(donefr, donefr+nactfr)
             donefr += nactfr
-            if self.write_rownum:  
+            if self.write_rownum:
                 #ftr = np.c_[ftr, np.array(frixs, ndmin=2).transpose()]
-                ftr = np.c_[ftr, 
-                            self.start_utt * np.ones( (nactfr, 1), float), 
+                ftr = np.c_[ftr,
+                            self.start_utt * np.ones( (nactfr, 1), float),
                             np.array(frixs, ndmin=2).transpose()]
             if self.write_time:
-                ftr = np.c_[ftr, self.sbpca.ac_hop 
+                ftr = np.c_[ftr, self.sbpca.ac_hop
                                   * np.array(frixs, ndmin=2).transpose()]
             #blockix = range(block*blockframes, block*blockframes+nactfr)
             if self.write_sbac:
-                ftr = np.c_[ftr, np.reshape(ftr[:, :, actualprepadframes:], 
+                ftr = np.c_[ftr, np.reshape(ftr[:, :, actualprepadframes:],
                                             (nsb*nlg, nactfr)).transpose()]
-            pcas = sbpca.sbpca_pca(acs[:, :, actualprepadframes:], 
+            pcas = sbpca.pca(acs[:, :, actualprepadframes:],
                                    self.sbpca.mapping)
             (nsb, npc, nactfr) = np.shape(pcas)
             #pcasr = np.reshape(pcas, (nsb*npc, nactfr)).transpose()
@@ -346,18 +346,18 @@ class SAcC(object):
                 isfirst = 0
                 ftrs = ftr
             else:
-                ftrs = np.r_[ftrs, ftr]        
+                ftrs = np.r_[ftrs, ftr]
 
         if self.write_pitch:
             # Run viterbi decode on all activations stitched together
-            pth = sbpca_viterbi(acts, self.hmm_vp)
+            pth = viterbi(acts, self.hmm_vp)
             # Convert pitch bin indices to frequencies in Hz by table lookup
             ftrs = np.c_[ftrs, self.ptchtab[pth]]
-            
+
         # first activation is Pr(unvoiced), so Pr(voiced) is its complement
         if self.write_pvx:
             ftrs = np.c_[ftrs, 1.0 - acts[0,]]
-    	
+
         return ftrs
 
 
@@ -366,7 +366,7 @@ class SAcC(object):
 def main(argv):
     """ Main routine to calculate SAcC from wav file """
     if len(argv) != 3:
-        raise NameError( ("Usage: ", argv[0], 
+        raise NameError( ("Usage: ", argv[0],
                           " inputsound.wav outputpitchtrack.txt") )
 
     inwavfile = argv[1]
@@ -376,7 +376,7 @@ def main(argv):
     config = {}
     # sbpca params
     # diff file for py
-    config['pca_file']    = 'aux/mapping-pca_sr8k_bpo6_sb24_k10.mat' 
+    config['pca_file']    = 'aux/mapping-pca_sr8k_bpo6_sb24_k10.mat'
     #config['kdim'] = 10 # inferred from mapping file
     config['nchs']        = 24
     config['n_s']         = 5.0  # secs per process block, controls blockframes
@@ -433,4 +433,3 @@ def main(argv):
 if __name__ == "__main__":
     import sys
     main(sys.argv)
-
