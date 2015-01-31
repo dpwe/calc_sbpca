@@ -361,17 +361,8 @@ class SAcC(object):
         return ftrs
 
 
-############## Provide a command-line wrapper
-
-def main(argv):
-    """ Main routine to calculate SAcC from wav file """
-    if len(argv) != 3:
-        raise NameError( ("Usage: ", argv[0],
-                          " inputsound.wav outputpitchtrack.txt") )
-
-    inwavfile = argv[1]
-    outptfile = argv[2]
-
+def default_config():
+    """ Provide a set of default configuration parameters."""
     # Setup config
     config = {}
     # sbpca params
@@ -418,6 +409,23 @@ def main(argv):
     #config['mat_out'] = 0
     #config['txt_out'] = 1
     config['dither_level'] = 1e-3
+
+    return config
+
+
+############## Provide a command-line wrapper
+
+def main(argv):
+    """ Main routine to calculate SAcC from wav file """
+    if len(argv) != 3:
+        raise NameError( ("Usage: ", argv[0],
+                          " inputsound.wav outputpitchtrack.txt") )
+
+    inwavfile = argv[1]
+    outptfile = argv[2]
+
+    # Setup config
+    config = default_config()
 
     # Configure
     sacc_extractor = SAcC(config)

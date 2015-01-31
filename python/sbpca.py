@@ -15,6 +15,7 @@ try:
   autoco_ext = True
 except ImportError:
   autoco_ext = False
+print "autoco_ext=", autoco_ext
 
 #####################################
 ############# from sbpca_filterbank.m
@@ -233,33 +234,10 @@ def subbands(data, srate, fbank, discard=0, isfirst=0):
 
 ############## from sbpca_autoco.m
 
-def autoco(subbands, srate=8000, win=0.025, hop=0.010, maxlags=None):
+def autoco(subbands, srate=8000, win=0.025, hop=0.010,
+           maxlags=None, normalize=False):
     """
-    % [autocos,energy] = sbpca_autocos(subbands,sr)
-    %   Calculate autocorrelations over subbands for sbpca.
-    %   subbands is nchs x ntime
-    %   autocos  is nlag x nchs x nframes
-    % 2013-05-27 Dan Ellis dpwe@ee.columbia.edu
-    """
-    if maxlags == None:
-        maxlags = int(np.round(win*srate))
-
-    # multichannel autocorrelation
-    autocos, acf_energy = autocorrelogram(subbands, srate, maxlags, hop, win)
-
-    #autocos = acf
-    #print "no normalization"
-
-    # Make it lags x subbands x timeframes
-    #autocos = permute(autocos, [2 1 3])
-
-    return autocos, acf_energy
-
-############## from autocorrelogram.m
-
-def autocorrelogram(data, srate, maxlags=None, hop=0.010, win=0.025):
-    """
-    function ac = autocorrelogram(x, sr, maxlags, h, w)
+    % [autocos,energy] = sbpca_autocos(subbands, sr, w, h, maxlags)
     %
     % x is a input signal consisting of multiple rows, each a separate
     % channel, and sr is samplingrate.
@@ -268,63 +246,54 @@ def autocorrelogram(data, srate, maxlags=None, hop=0.010, win=0.025):
     % the input signal.
     %
     % kslee@ee.columbia.edu, 6/16/2005
-    %
+    %   subbands is nchs x ntime
+    %   autocos  is nlag x nchs x nframes
+    % 2013-05-27 Dan Ellis dpwe@ee.columbia.edu
     """
-
     if maxlags == None:
-        maxlags = int(np.round(srate * win))
+        maxlags = int(np.round(win*srate))
 
-    # Change time into the length of frame and window
+    # Change time into the length of frame and window.
     frm_len = int(srate*hop)
     win_len = int(srate*win)
 
-    # the channels and points of input signal
-    nchs, npts = np.shape(data)
+    # The channels and points of input signal.
+    nchs, npts = np.shape(subbands)
 
-    # the total number of frames within each segment
+    # The total number of frames within each segment.
     nfrms = int(1 + math.floor((npts + 1 - win_len - maxlags)/frm_len))
-    # line 61 of autocorr.c is
+    # Line 61 of autocorr.c is:
     # 		z1 += xp[base+win_len+j]*xp[base+win_len+j+eta];
     # where base = (f-1)*frm_len;
     # and f = 0..(nfrms-1)
     # and j = 0..(win_len-1)
     # and eta = 0..(maxlags-1)
-    #  and the index must stay within npts
+    #  and the index must stay within npts.
 
-    #print "nchs=%d maxlags=%d nfrms=%d" % (nchs, maxlags, nfrms)
-
-    #ac = np.zeros( (nchs, maxlags, nfrms) )
-    #sc = np.zeros( (nchs, maxlags, nfrms) )
     autocos = np.zeros( (nchs, maxlags, nfrms) )
-    etot = np.zeros( (nchs, nfrms) )
 
     for chan in range(nchs):
-        xdat = data[chan,]
+        xdat = subbands[chan,]
         if autoco_ext:
             # This is the optimized C version.
             autocos[chan,] = _autocorr_py.autocorr(xdat, frm_len,
                                                    nfrms, maxlags, win_len).T
         else:
             # This is the pure-python version, about 20% slower.
-            autocos[chan,], etotchan = my_autocorr(
-                xdat, frm_len, nfrms, maxlags, win_len)
-            etot[chan, ] = etotchan[chan, 0, ]
+            if normalize:
+              autocos[chan,] = autocorr(
+                xdat, frm_len, nfrms, maxlags, win_len, normalize)
+            else:
+              autocos[chan,], ac_energy = autocorr(
+                xdat, frm_len, nfrms, maxlags, win_len, normalize)
 
-    #autocos = acf / (acf_engy + (acf_engy == 0))
-    return autocos, etot
+    return autocos
+
 
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 ################ from mitch's example
-def frames_from_signal(signal, window, shift):
-    """
-    frames_from_signal - convert a signal into a matrix of overlapped frames
-    """
-    frames = rolling_window(signal.T, window)
-    oframes = frames[..., 0::shift, :]
-    return np.rollaxis(oframes, 1)
-
 def rolling_window(data, window):
     """
     rolling_window - extract successive instances of a window on a vector
@@ -333,13 +302,20 @@ def rolling_window(data, window):
     strides = data.strides + (data.strides[-1],)
     return np.lib.stride_tricks.as_strided(data, shape=shape, strides=strides)
 
-def my_autocorr(sig, frm_len, nfrms, maxlags, win_len):
+def frames_from_signal(signal, window, shift):
+    """
+    frames_from_signal - convert a signal into a matrix of overlapped frames
+    """
+    frames = rolling_window(signal.T, window)
+    oframes = frames[..., 0::shift, :]
+    return np.rollaxis(oframes, 1)
+
+def autocorr(sig, frm_len, nfrms, maxlags, win_len, normalize=True):
     """
     function c = my_autocorr(sig,frm_len,nfrms,maxlags,win_len)
-    % pure-matlab version of what autocorr.mex calculates
+    % pure-python version of what _autocorr_py calculates
     % (excepting cumulated errors from single precision)
     """
-
     cor = np.zeros( (maxlags, nfrms) )
 
     # Optimizations from Mitch McLaren, <mitchell.mclaren@sri.com>
@@ -354,8 +330,13 @@ def my_autocorr(sig, frm_len, nfrms, maxlags, win_len):
                    - np.r_[np.zeros((win_len, nfrms)), w22mat], axis=0)
     sums[sums < 0] = 0 # per Mitch 2013-09-19
     etot = np.sqrt(sums[win_len-1, :]*sums[win_len-1:-win_len, :])
+    # But don't normalize zero lag, special case to return sb energy
+    etot[0, :] = 1.
 
-    return cor/(etot + (etot==0)), etot
+    if normalize:
+      return cor/(etot + (etot==0))
+    else:
+      return cor, etot
 
 ############### from sbpca_pca.m
 def pca(autocos, mapping):
@@ -430,8 +411,8 @@ class SbPca(object):
         else:
             npad = 0
         sbs, frqs = subbands(data, srate, self.fbank, npad, isfirst)
-        acs, etot = autoco(sbs, srate, self.ac_win, self.ac_hop,
-                           self.maxlags)
+        acs = autoco(sbs, srate, self.ac_win, self.ac_hop,
+                     self.maxlags)
         return acs
 
     def calc_sbpcas(self, data, srate, isfirst=0):
