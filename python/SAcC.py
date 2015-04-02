@@ -7,6 +7,8 @@ Python port based on SRI Feature template.
 2013-08-25 Dan Ellis dpwe@ee.columbia.edu
 """
 
+import os
+
 import numpy as np
 import scipy.signal
 import scipy.io
@@ -360,6 +362,7 @@ class SAcC(object):
 
         return ftrs
 
+AUX_DIRECTORY = os.path.join(os.path.split(__file__)[0], 'aux')
 
 def default_config():
     """ Provide a set of default configuration parameters."""
@@ -367,7 +370,8 @@ def default_config():
     config = {}
     # sbpca params
     # diff file for py
-    config['pca_file']    = 'aux/mapping-pca_sr8k_bpo6_sb24_k10.mat'
+    config['pca_file']    = os.path.join(
+        AUX_DIRECTORY, 'mapping-pca_sr8k_bpo6_sb24_k10.mat')
     #config['kdim'] = 10 # inferred from mapping file
     config['nchs']        = 24
     config['n_s']         = 5.0  # secs per process block, controls blockframes
@@ -381,13 +385,18 @@ def default_config():
     thop = 0.010
     config['thop']        = thop  # autoco hop
     # mlp params
-    #config['wgt_file']    = 'aux/rats_sr8k_bpo6_sb24_k10_aCH_h100.wgt'
-    #config['norms_file']  = 'aux/tr_rats_sr8k_bpo6_sb24_k10.norms'
-    config['wgt_file']    = 'aux/sub_qtr_rats_keele_sr8k_bpo6_sb24_k10_ep5_h100.wgt'
-    config['norms_file']  = 'aux/tr_keele_rbf_pinknoise_sr8000_bpo6_nchs24_k10.norms'
+    #config['wgt_file']    = os.path.join(
+    #    AUX_DIRECTORY, 'rats_sr8k_bpo6_sb24_k10_aCH_h100.wgt')
+    #config['norms_file']  = os.path.join(
+    #    AUX_DIRECTORY, 'tr_rats_sr8k_bpo6_sb24_k10.norms')
+    config['wgt_file']    = os.path.join(
+        AUX_DIRECTORY, 'sub_qtr_rats_keele_sr8k_bpo6_sb24_k10_ep5_h100.wgt')
+    config['norms_file']  = os.path.join(
+        AUX_DIRECTORY, 'tr_keele_rbf_pinknoise_sr8000_bpo6_nchs24_k10.norms')
     #config['nhid'] = 100 # inferred from wgt file, + input size from norms file
     #config['nmlp'] = 68  # output layer size, inferred from wgt file
-    config['pcf_file']    = 'aux/pitch_candidates_freqz.txt'
+    config['pcf_file']    = os.path.join(
+        AUX_DIRECTORY, 'pitch_candidates_freqz.txt')
     # viterbi decode params
     config['hmm_vp']      = 0.9 # interpretation changed c/w Matlab
     # output options
