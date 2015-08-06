@@ -328,7 +328,7 @@ class SAcC(object):
                                   * np.array(frixs, ndmin=2).transpose()]
             #blockix = range(block*blockframes, block*blockframes+nactfr)
             if self.write_sbac:
-                ftr = np.c_[ftr, np.reshape(ftr[:, :, actualprepadframes:],
+                ftr = np.c_[ftr, np.reshape(acs[:, :, actualprepadframes:],
                                             (nsb*nlg, nactfr)).transpose()]
             pcas = sbpca.pca(acs[:, :, actualprepadframes:],
                                    self.sbpca.mapping)
@@ -343,7 +343,7 @@ class SAcC(object):
             #acts[:,blockix] = act
             acts = np.c_[acts, act]
             if self.write_posteriors:
-                ftr = np.c_[ftr, acts]
+                ftr = np.c_[ftr, act.T]
             if isfirst:
                 isfirst = 0
                 ftrs = ftr
