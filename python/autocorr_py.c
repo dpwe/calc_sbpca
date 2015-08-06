@@ -127,7 +127,7 @@ static void calc_corr(
 	z2 += s2;
 	/* .. giving us the full result for the first window */
 	if (eta == 0)   e[0] = z2;
-	if (normalize)
+	if (eta > 0 && normalize)
 	  acp[0][eta] = z1/SQRT(z1*e[0]);
 	else
 	  acp[0][eta] = z1;
@@ -181,7 +181,7 @@ static void calc_corr(
 	    if (eta == 0)   e[f] = z2;
 	    /* finally, write the actual raw autocorrelation and normalizing 
                constants from the accumulators */
-	    if (normalize)
+	    if (eta > 0 && normalize)
 	      acp[f][eta] = z1/SQRT(e[f]*z2);
 	    else
 	      acp[f][eta] = z1;
