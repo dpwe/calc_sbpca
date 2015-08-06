@@ -48,14 +48,15 @@ double SQRT(double x) {
  */
 
 
-static void calc_norm_corr(
+static void calc_corr(
 		      double xp[], /* Input vector */
 		      double **acp, /* Autocorrelation Matrix [nfrms][maxlags] */
 		      //double *sc, /* Scaling Factor Matrix for Normalizing AC */
 		      int winL,   /* size of window vector */
 		      int lagL,   /* size of lag */
 		      int frmL,   /* size of a frame */
-		      int nfrm    /* Number of Frames */
+		      int nfrm,   /* Number of Frames */
+		      int normalize /* flag to calc normalized xcorr */
 		      )
 {
     /* Calculating auto-correlation of rectangular-windowed input. */
@@ -126,7 +127,10 @@ static void calc_norm_corr(
 	z2 += s2;
 	/* .. giving us the full result for the first window */
 	if (eta == 0)   e[0] = z2;
-	acp[0][eta] = z1/SQRT(z1*e[0]);
+	if (normalize)
+	  acp[0][eta] = z1/SQRT(z1*e[0]);
+	else
+	  acp[0][eta] = z1;
 	/* .. but also store as partial sums in the most recent 
 	   value in the fifo */
 	achist[hix] = s1;
@@ -177,7 +181,10 @@ static void calc_norm_corr(
 	    if (eta == 0)   e[f] = z2;
 	    /* finally, write the actual raw autocorrelation and normalizing 
                constants from the accumulators */
-	    acp[f][eta] = z1/SQRT(e[f]*z2);
+	    if (normalize)
+	      acp[f][eta] = z1/SQRT(e[f]*z2);
+	    else
+	      acp[f][eta] = z1;
 	}
 	
     }
@@ -245,11 +252,12 @@ autocorr_py_autocorr(PyObject *self, PyObject *args)
     double *xp;
     double **acp;
     int i,j,npts,m, dims[2];
-    int frmL, lagL, nfrm, winL;
+    int frmL, lagL, nfrm, winL, normalize;
 
     /* parse input args */
-    if (!PyArg_ParseTuple(args, "O!iiii", 
-			  &PyArray_Type, &xpin, &frmL, &nfrm, &lagL, &winL))
+    if (!PyArg_ParseTuple(args, "O!iiiii", 
+			  &PyArray_Type, &xpin, &frmL, &nfrm, &lagL, &winL, 
+			  &normalize))
 	return NULL;
 //    fprintf(stderr, "xpin=0x%lx frmL=%d lagL=%d nfrm=%d winL=%d\n", 
 //	    xpin, frmL, lagL, nfrm, winL);
@@ -284,7 +292,7 @@ autocorr_py_autocorr(PyObject *self, PyObject *args)
     acp = pymatrix_to_Carrayptrs(acout);
      
     /* run calculation */
-    calc_norm_corr(xp, acp, winL, lagL, frmL, nfrm);
+    calc_corr(xp, acp, winL, lagL, frmL, nfrm, normalize);
 
     /* return the results */
     return PyArray_Return(acout);

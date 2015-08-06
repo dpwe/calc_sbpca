@@ -10,12 +10,12 @@ import numpy as np
 import scipy.signal
 
 # c extension to calculate autocorr
-#try:
-#  import _autocorr_py
-#  autoco_ext = True
-#except ImportError:
-#  autoco_ext = False
-autoco_ext = False
+try:
+  import _autocorr_py
+  autoco_ext = True
+except ImportError:
+  autoco_ext = False
+#autoco_ext = False
 print "autoco_ext=", autoco_ext
 
 #####################################
@@ -236,7 +236,7 @@ def subbands(data, srate, fbank, discard=0, isfirst=0):
 ############## from sbpca_autoco.m
 
 def autoco(subbands, srate=8000, win=0.025, hop=0.010,
-           maxlags=None):
+           maxlags=None, normalize=True):
     """
     % [autocos,energy] = sbpca_autocos(subbands, sr, w, h, maxlags)
     %
@@ -277,12 +277,12 @@ def autoco(subbands, srate=8000, win=0.025, hop=0.010,
         xdat = subbands[chan,]
         if autoco_ext:
             # This is the optimized C version.
-            autocos[chan,] = _autocorr_py.autocorr(xdat, frm_len,
-                                                   nfrms, maxlags, win_len).T
+            autocos[chan,] = _autocorr_py.autocorr(
+                xdat, frm_len, nfrms, maxlags, win_len, normalize).T
         else:
             # This is the pure-python version, about 20% slower.
-             autocos[chan,] = autocorr(
-                xdat, frm_len, nfrms, maxlags, win_len)
+            autocos[chan,] = autocorr(
+                xdat, frm_len, nfrms, maxlags, win_len, normalize)
 
     return autocos
 
@@ -306,7 +306,7 @@ def frames_from_signal(signal, window, shift):
     oframes = frames[..., 0::shift, :]
     return np.rollaxis(oframes, 1)
 
-def autocorr(sig, frm_len, nfrms, maxlags, win_len):
+def autocorr(sig, frm_len, nfrms, maxlags, win_len, normalize):
     """
     function c = my_autocorr(sig,frm_len,nfrms,maxlags,win_len)
     % pure-python version of what _autocorr_py calculates
@@ -329,7 +329,10 @@ def autocorr(sig, frm_len, nfrms, maxlags, win_len):
     # But don't normalize zero lag, special case to return sb energy
     etot[0, :] = 1.
 
-    return cor/(etot + (etot==0))
+    if normalize:
+        cor = cor / (etot + (etot == 0))
+
+    return cor
 
 ############### from sbpca_pca.m
 def pca(autocos, mapping):

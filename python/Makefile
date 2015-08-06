@@ -7,7 +7,8 @@
 # darwinports
 #PYDIR=/opt/local/Library
 # homebrew
-PYDIR=/usr/local/Cellar/python/2.7.8_1
+#PYDIR=/usr/local/Cellar/python/2.7.8_1
+PYDIR=${HOME}/homebrew/Cellar/python/2.7.9
 
 CFLAGS=-I${PYDIR}/Frameworks/Python.framework/Versions/2.7/include/python2.7 -I${PYDIR}/Frameworks/Python.framework/Versions/2.7/lib/python2.7/site-packages/numpy/core/include/numpy
 
