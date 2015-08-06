@@ -330,6 +330,8 @@ class SAcC(object):
             if self.write_sbac:
                 ftr = np.c_[ftr, np.reshape(acs[:, :, actualprepadframes:],
                                             (nsb*nlg, nactfr)).transpose()]
+            # Restore uniform zero'th lag (used to store energy).
+            acs[:, 0, :] = 1.0
             pcas = sbpca.pca(acs[:, :, actualprepadframes:],
                                    self.sbpca.mapping)
             (nsb, npc, nactfr) = np.shape(pcas)

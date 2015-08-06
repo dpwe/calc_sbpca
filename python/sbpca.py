@@ -419,5 +419,11 @@ class SbPca(object):
         If "isfirst" is set, clear the filter state and warm up again
         """
         acs = self.calc_autocos(data, srate, isfirst)
-        pcas     = pca(acs, self.mapping)
+        # The mapping was based on fully-normalized autoco rows 
+        # i.e. with ac[lag=0] == 1.  But calc_autocos now uses that 
+        # for the actual subband energy.  So make it back what it ought 
+        # to be.
+        acs[:, 0, :] = 1
+        # Now we can project onto the principal components.
+        pcas = pca(acs, self.mapping)
         return pcas
