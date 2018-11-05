@@ -204,7 +204,7 @@ def subbands(data, srate, fbank, discard=0, isfirst=0):
     for filt in range(bands):
         # disp(['band ' int2str(filt)]);
         # pad t zeros on the end, since we're going to chop from tail
-        tdel = np.round(fbank.tdel[filt])
+        tdel = int(np.round(fbank.tdel[filt]))
 #        y_1 = scipy.signal.lfilter(fbank.b_i[filt,],
 #                                 fbank.a_i[filt,],
 #                                 np.r_[data, np.zeros(tdel)])
